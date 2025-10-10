@@ -20,7 +20,7 @@ django-mptt==0.14.0
 celery[redis]==5.3.4
 django-celery-beat==2.5.0
 django-celery-results==2.5.0
-redis==5.0.1
+redis>=4.5.2,<5.0.0  # ← CORREGIDO: Compatible con celery[redis]==5.3.4
 
 # API Documentation
 drf-spectacular==0.26.5

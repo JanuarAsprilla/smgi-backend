@@ -13,7 +13,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "5433:5432"
     networks:
       - smgi_network
     healthcheck:
@@ -27,15 +27,15 @@ services:
   redis:
     image: redis:7-alpine
     container_name: smgi_redis
-    command: redis-server --appendonly yes --requirepass smgi_redis_password
+    command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
     ports:
-      - "6379:6379"
+      - "6380:6379"
     networks:
       - smgi_network
     healthcheck:
-      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -61,7 +61,7 @@ services:
     env_file:
       - .env
     environment:
-      - DJANGO_SETTINGS_MODULE=config.settings.production
+      - DJANGO_SETTINGS_MODULE=config.settings.development
     depends_on:
       db:
         condition: service_healthy
@@ -70,38 +70,36 @@ services:
     networks:
       - smgi_network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health/ || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
     restart: unless-stopped
 
-  # Celery Worker - Default Queue
+  # Celery Worker
   celery_worker:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: smgi_celery_worker
-    command: celery -A config worker -l info -Q default,monitoring,alerts,notifications,reports,maintenance -c 4 --max-tasks-per-child=1000
+    command: celery -A config worker -l info -c 4 --max-tasks-per-child=1000
     volumes:
       - .:/app
       - logs_volume:/app/logs
     env_file:
       - .env
     environment:
-      - DJANGO_SETTINGS_MODULE=config.settings.production
+      - DJANGO_SETTINGS_MODULE=config.settings.development
     depends_on:
-      - db
-      - redis
-      - web
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_started
     networks:
       - smgi_network
-    healthcheck:
-      test: ["CMD-SHELL", "celery -A config inspect ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
     restart: unless-stopped
 
   # Celery Beat (Scheduler)
@@ -117,31 +115,35 @@ services:
     env_file:
       - .env
     environment:
-      - DJANGO_SETTINGS_MODULE=config.settings.production
+      - DJANGO_SETTINGS_MODULE=config.settings.development
     depends_on:
-      - db
-      - redis
-      - web
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_started
     networks:
       - smgi_network
     restart: unless-stopped
 
   # Flower (Celery Monitoring)
   flower:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: mher/flower:1.2
     container_name: smgi_flower
-    command: celery -A config flower --port=5555 --basic_auth=admin:smgi_flower_password
+    command: celery -A config flower --port=5555
     ports:
       - "5555:5555"
     env_file:
       - .env
     environment:
-      - DJANGO_SETTINGS_MODULE=config.settings.production
+      - DJANGO_SETTINGS_MODULE=config.settings.development
+      - CELERY_BROKER_URL=redis://redis:6379/0
     depends_on:
-      - redis
-      - celery_worker
+      redis:
+        condition: service_healthy
+      celery_worker:
+        condition: service_started
     networks:
       - smgi_network
     restart: unless-stopped
@@ -151,15 +153,16 @@ services:
     image: nginx:alpine
     container_name: smgi_nginx
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/conf.d:/etc/nginx/conf.d:ro
-      - static_volume:/static:ro
-      - media_volume:/media:ro
+    - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    - ./nginx/conf.d:/etc/nginx/conf.d:ro
+    - static_volume:/static:ro
+    - media_volume:/media:ro
     ports:
-      - "80:80"
-      - "443:443"
+      - "8080:80"
+      - "8443:443"
     depends_on:
-      - web
+      web:
+        condition: service_started
     networks:
       - smgi_network
     restart: unless-stopped
