@@ -1,25 +1,17 @@
-"""
-SMGI Backend - GIS Services URLs
-"""
+# apps/gis_services/urls.py
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
+from . import views
 
-from apps.gis_services import views
-
-# Create router
+# Crear un router para los ViewSets
 router = DefaultRouter()
-router.register(r'', views.ArcGISServiceViewSet, basename='service')
-router.register(r'tags', views.ServiceTagViewSet, basename='service-tag')
-router.register(r'endpoints', views.ServiceEndpointViewSet, basename='service-endpoint')
+router.register(r'services', views.ArcGISServiceViewSet, basename='service')
+router.register(r'layers', views.SpatialLayerViewSet, basename='layer')
+router.register(r'tags', views.ServiceTagViewSet, basename='tag')
+router.register(r'endpoints', views.ServiceEndpointViewSet, basename='endpoint')
 
-# Layer routes (separate from services)
-layer_router = DefaultRouter()
-layer_router.register(r'', views.SpatialLayerViewSet, basename='layer')
-
+# Patrón de URL principal para la app
 urlpatterns = [
-    # Service routes
+    # Incluir las URLs generadas por el router
     path('', include(router.urls)),
 ]
-
-# Add layer routes with different prefix
-app_name = 'gis_services'
