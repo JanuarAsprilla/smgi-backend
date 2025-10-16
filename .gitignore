@@ -1,0 +1,13 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs, media, estáticos
+logs/
+media/
+staticfiles/
+static/
+*.log
+*.pot
