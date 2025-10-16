@@ -7,6 +7,7 @@ import uuid
 from django.contrib.gis.db import models
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinValueValidator, MaxValueValidator
+from django.db import transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from model_utils.models import TimeStampedModel, SoftDeletableModel
@@ -69,7 +70,7 @@ class LayerSnapshot(BaseModel):
     total_length = models.FloatField(_('Total Length'), blank=True, null=True)
     
     # Geometric statistics
-    extent_bounds = models.JSONField(
+    extent_bounds = models.JSONField( # Considerar PolygonField si se hacen muchas queries espaciales
         _('Extent Bounds'),
         default=dict,
         blank=True,
@@ -261,12 +262,15 @@ class ChangeDetectionResult(BaseModel):
         blank=True,
         help_text=_('Detailed breakdown of detected changes')
     )
-    affected_features = models.JSONField(
-        _('Affected Features'),
-        default=list,
-        blank=True,
-        help_text=_('List of feature IDs affected by changes')
-    )
+    # --- Decisión importante: Cambiar affected_features a una tabla intermedia ---
+    # Si la lista de IDs es muy larga, un JSONField puede ser ineficiente.
+    # Se podría crear una tabla intermedia para IDs de features afectadas.
+    # affected_features = models.JSONField( # Campo original
+    #     _('Affected Features'),
+    #     default=list,
+    #     blank=True,
+    #     help_text=_('List of feature IDs affected by changes')
+    # )
     
     # Statistical analysis
     statistical_significance = models.FloatField(
@@ -376,6 +380,31 @@ class ChangeDetectionResult(BaseModel):
             summary_parts.append(f"{self.modified_features} features modified")
         
         return "; ".join(summary_parts) or "Changes detected in layer properties."
+
+
+class AffectedFeature(models.Model):
+    """
+    Model to store IDs of features affected by a change detection result.
+    This replaces the JSONField 'affected_features' in ChangeDetectionResult
+    for better performance and scalability with large lists of IDs.
+    """
+    change_result = models.ForeignKey(
+        ChangeDetectionResult,
+        on_delete=models.CASCADE,
+        related_name='affected_feature_ids' # Nuevo related_name
+    )
+    feature_id = models.CharField(max_length=255) # ID de la feature, puede ser string si no es int
+    
+    class Meta:
+        db_table = 'monitoring_affected_feature'
+        verbose_name = _('Affected Feature ID')
+        verbose_name_plural = _('Affected Feature IDs')
+        # Índice compuesto para consultas rápidas
+        indexes = [
+            models.Index(fields=['change_result', 'feature_id']),
+        ]
+        # Opcional: unique_together si un ID no puede estar duplicado por resultado
+        # unique_together = ['change_result', 'feature_id']
 
 
 class MonitoringJob(BaseModel):
@@ -497,33 +526,67 @@ class MonitoringJob(BaseModel):
         return self.services.count()
     
     def calculate_next_run(self):
-        """Calculate next run time based on schedule expression"""
-        # This would typically use a cron parser library
-        # For now, we'll implement basic interval parsing
+        """
+        Calculate next run time based on schedule expression.
+        Uses croniter library for robust cron parsing.
+        """
         from django.utils import timezone
-        import re
-        
-        # Simple pattern matching for common intervals
-        if re.match(r'^\d+m, self.schedule_expression):  # e.g., "15m"
-            minutes = int(self.schedule_expression[:-1])
-            return timezone.now() + timezone.timedelta(minutes=minutes)
-        elif re.match(r'^\d+h, self.schedule_expression):  # e.g., "2h"
-            hours = int(self.schedule_expression[:-1])
-            return timezone.now() + timezone.timedelta(hours=hours)
-        elif re.match(r'^\d+d, self.schedule_expression):  # e.g., "1d"
-            days = int(self.schedule_expression[:-1])
-            return timezone.now() + timezone.timedelta(days=days)
-        else:
-            # Default to 1 hour if schedule can't be parsed
-            return timezone.now() + timezone.timedelta(hours=1)
+        try:
+            from croniter import croniter
+            # Asegurar que el schedule_expression es un cron válido
+            # Si no lo es, croniter lanzará una excepción
+            if croniter.is_valid(self.schedule_expression):
+                # Obtener el timestamp del próximo run basado en la hora actual
+                next_run_timestamp = croniter(self.schedule_expression, timezone.now()).get_next()
+                return timezone.datetime.fromtimestamp(next_run_timestamp, tz=timezone.now().tzinfo)
+            else:
+                # Si no es válido, usar la lógica anterior como fallback o lanzar error
+                # Lanzamos una excepción para que sea manejada por el caller
+                raise ValueError(f"Invalid cron expression: {self.schedule_expression}")
+        except ImportError:
+            # Si croniter no está instalado, usar la lógica simple como fallback
+            import re
+            if re.match(r'^\d+m, self.schedule_expression):  # e.g., "15m"
+                minutes = int(self.schedule_expression[:-1])
+                return timezone.now() + timezone.timedelta(minutes=minutes)
+            elif re.match(r'^\d+h, self.schedule_expression):  # e.g., "2h"
+                hours = int(self.schedule_expression[:-1])
+                return timezone.now() + timezone.timedelta(hours=hours)
+            elif re.match(r'^\d+d, self.schedule_expression):  # e.g., "1d"
+                days = int(self.schedule_expression[:-1])
+                return timezone.now() + timezone.timedelta(days=days)
+            else:
+                # Default to 1 hour if schedule can't be parsed
+                return timezone.now() + timezone.timedelta(hours=1)
+        except ValueError:
+            # Capturar el error de croniter.is_valid o de la expresión inválida
+            # y usar fallback
+            import re
+            if re.match(r'^\d+m, self.schedule_expression):  # e.g., "15m"
+                minutes = int(self.schedule_expression[:-1])
+                return timezone.now() + timezone.timedelta(minutes=minutes)
+            elif re.match(r'^\d+h, self.schedule_expression):  # e.g., "2h"
+                hours = int(self.schedule_expression[:-1])
+                return timezone.now() + timezone.timedelta(hours=hours)
+            elif re.match(r'^\d+d, self.schedule_expression):  # e.g., "1d"
+                days = int(self.schedule_expression[:-1])
+                return timezone.now() + timezone.timedelta(days=days)
+            else:
+                # Default to 1 hour if schedule can't be parsed
+                return timezone.now() + timezone.timedelta(hours=1)
     
     def update_next_run(self):
         """Update the next run time"""
         self.next_run = self.calculate_next_run()
         self.save(update_fields=['next_run'])
     
+    @transaction.atomic # Asegura que la actualización del job y la creación de la ejecución sean atómicas
     def record_execution(self, success=True, error_message=None):
-        """Record job execution result"""
+        """
+        Record job execution result.
+        Now uses signals or a separate Celery task for creating MonitoringJobExecution
+        is preferred for decoupling, but this is the direct method.
+        """
         self.last_run = timezone.now()
         
         if success:
@@ -535,7 +598,7 @@ class MonitoringJob(BaseModel):
         # Update next run time
         self.update_next_run()
         
-        # Create execution record
+        # Create execution record (dentro de la transacción)
         MonitoringJobExecution.objects.create(
             job=self,
             success=success,
@@ -546,9 +609,11 @@ class MonitoringJob(BaseModel):
         if self.consecutive_failures >= 5:
             self.status = MonitoringStatus.ERROR
         
-        self.save(update_fields=[
-            'last_run', 'last_successful_run', 'consecutive_failures', 'status'
-        ])
+        # Guardar solo los campos actualizados
+        update_fields = [
+            'last_run', 'last_successful_run', 'consecutive_failures', 'status', 'next_run'
+        ]
+        self.save(update_fields=update_fields)
 
 
 class MonitoringJobExecution(TimeStampedModel):
@@ -607,10 +672,12 @@ class MonitoringJobExecution(TimeStampedModel):
         status = "Success" if self.success else "Failed"
         return f"{self.job.name} - {status} - {self.started_at.strftime('%Y-%m-%d %H:%M')}"
     
+    @transaction.atomic
     def mark_completed(self, success=True, error_message=None):
         """Mark execution as completed"""
         self.completed_at = timezone.now()
-        self.duration_seconds = int((self.completed_at - self.started_at).total_seconds())
+        if self.started_at:
+            self.duration_seconds = int((self.completed_at - self.started_at).total_seconds())
         self.success = success
         if error_message:
             self.error_message = error_message
@@ -618,6 +685,7 @@ class MonitoringJobExecution(TimeStampedModel):
             'completed_at', 'duration_seconds', 'success', 'error_message'
         ])
     
+    @transaction.atomic
     def add_log_entry(self, level, message, **kwargs):
         """Add entry to execution log"""
         if not isinstance(self.execution_log, list):

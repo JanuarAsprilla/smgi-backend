@@ -24,6 +24,9 @@ from apps.monitoring.serializers import (
     SystemHealthMetricSerializer, MonitoringStatisticsSerializer,
     TriggerMonitoringSerializer
 )
+# Considerar si este import es aceptable o si se debe desacoplar
+# Si es necesario, se podría obtener a través de una relación indirecta o un servicio
+from apps.gis_services.models import SpatialLayer
 
 
 @extend_schema(tags=['Monitoring'])
@@ -79,17 +82,15 @@ class ChangeDetectionResultViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         queryset = ChangeDetectionResult.objects.all()
         
-        # Filter by severity
+        # Filter by severity using the logic from the model
         severity = self.request.query_params.get('severity')
         if severity:
-            severity_filters = {
-                'low': Q(confidence_score__lt=0.5) | Q(feature_count_change_percent__lt=5),
-                'medium': Q(feature_count_change_percent__gte=5, feature_count_change_percent__lt=25),
-                'high': Q(feature_count_change_percent__gte=25, feature_count_change_percent__lt=50),
-                'critical': Q(feature_count_change_percent__gte=50)
-            }
-            if severity in severity_filters:
-                queryset = queryset.filter(severity_filters[severity])
+            # Usar un método del modelo para construir el filtro Q
+            # Este método debe ser implementado en ChangeDetectionResult
+            severity_filter = ChangeDetectionResult.get_severity_filter(severity)
+            if severity_filter:
+                queryset = queryset.filter(severity_filter)
+            # else: Manejar el caso de severidad inválida si es necesario
         
         # Filter by date range
         days = self.request.query_params.get('days')
@@ -316,7 +317,13 @@ def monitoring_statistics(request):
     ).count()
     
     # Layer statistics
-    from apps.gis_services.models import SpatialLayer
+    # --- DECISIÓN DE DISEÑO ---
+    # Mantener el import directo si es una dependencia funcional crítica.
+    # Alternativamente, si se quisiera desacoplar, se podría:
+    # 1. Tener un campo en MonitoringJob que cachee el conteo de capas monitoreadas.
+    # 2. Usar señales para actualizar ese campo cuando se agregan/quitan capas de un job.
+    # 3. Obtener el conteo desde MonitoringJob.layers.count() si se filtra por jobs activos.
+    # Por simplicidad y claridad funcional, dejamos el import directo.
     layers_monitored = SpatialLayer.objects.filter(
         is_monitored=True,
         is_removed=False
@@ -431,6 +438,12 @@ def monitoring_dashboard(request):
         is_removed=False
     ).count()
     
+    # Layer statistics (mismo comentario que en monitoring_statistics)
+    layers_monitored = SpatialLayer.objects.filter(
+        is_monitored=True,
+        is_removed=False
+    ).count()
+    
     dashboard_data = {
         'period_hours': hours,
         'recent_changes_count': recent_changes.count(),
@@ -440,6 +453,7 @@ def monitoring_dashboard(request):
         'system_health': SystemHealthMetricSerializer(latest_health).data if latest_health else None,
         'active_jobs': active_jobs,
         'overdue_jobs': overdue_jobs,
+        'layers_monitored': layers_monitored, # Añadido al dashboard
     }
     
     return Response(dashboard_data)

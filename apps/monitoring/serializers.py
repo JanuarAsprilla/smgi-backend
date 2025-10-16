@@ -9,7 +9,7 @@ from django.utils.translation import gettext_lazy as _
 from apps.monitoring.models import (
     LayerSnapshot, ChangeDetectionResult, MonitoringJob,
     MonitoringJobExecution, DataQualityRule, DataQualityResult,
-    SystemHealthMetric
+    SystemHealthMetric, AffectedFeature # Añadido AffectedFeature
 )
 from apps.gis_services.serializers import SpatialLayerListSerializer
 
@@ -35,6 +35,17 @@ class LayerSnapshotSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class AffectedFeatureSerializer(serializers.ModelSerializer):
+    """
+    Serializer for AffectedFeature model.
+    Used to represent features affected by a change detection result.
+    """
+    class Meta:
+        model = AffectedFeature
+        fields = ['id', 'feature_id', 'created']
+        read_only_fields = ['id', 'created']
+
+
 class ChangeDetectionResultListSerializer(serializers.ModelSerializer):
     """Simplified serializer for change detection results listing"""
     
@@ -54,7 +65,10 @@ class ChangeDetectionResultListSerializer(serializers.ModelSerializer):
 
 
 class ChangeDetectionResultDetailSerializer(serializers.ModelSerializer):
-    """Detailed serializer for change detection results"""
+    """
+    Detailed serializer for change detection results.
+    Replaces 'affected_features' field (removed from model) with 'affected_feature_ids'.
+    """
     
     layer_name = serializers.CharField(source='current_snapshot.layer.name', read_only=True)
     service_name = serializers.CharField(source='current_snapshot.layer.service.name', read_only=True)
@@ -62,6 +76,10 @@ class ChangeDetectionResultDetailSerializer(serializers.ModelSerializer):
     change_severity = serializers.ReadOnlyField()
     total_features_affected = serializers.ReadOnlyField()
     change_summary = serializers.SerializerMethodField()
+    # --- CAMBIO: Reemplaza el campo afectado por la relación con AffectedFeature ---
+    # affected_features = serializers.JSONField(read_only=True) # Campo eliminado del modelo
+    affected_feature_ids = AffectedFeatureSerializer(many=True, read_only=True, source='affected_feature_ids')
+    # --- FIN CAMBIO ---
     
     class Meta:
         model = ChangeDetectionResult
@@ -73,7 +91,8 @@ class ChangeDetectionResultDetailSerializer(serializers.ModelSerializer):
             'area_change', 'area_change_percent', 'centroid_displacement',
             'modified_features', 'new_features', 'deleted_features',
             'total_features_affected', 'data_quality_score',
-            'data_quality_change', 'change_details', 'affected_features',
+            'data_quality_change', 'change_details',
+            'affected_feature_ids', # Campo actualizado
             'statistical_significance', 'anomaly_score', 'exceeds_threshold',
             'threshold_values', 'change_severity', 'change_summary',
             'processing_status', 'error_message', 'created'
@@ -152,6 +171,7 @@ class MonitoringJobDetailSerializer(serializers.ModelSerializer):
         return obj.created_by.get_full_name() if obj.created_by else None
     
     def get_recent_executions(self, obj):
+        # Asumiendo que la vista maneja la optimización con prefetch_related
         executions = obj.executions.all()[:5]
         return MonitoringJobExecutionSerializer(executions, many=True).data
 
@@ -278,21 +298,26 @@ class SystemHealthMetricSerializer(serializers.ModelSerializer):
 
 class MonitoringStatisticsSerializer(serializers.Serializer):
     """Serializer for monitoring statistics"""
-    
+    # --- CORRECCIÓN: Alineado con los campos devueltos por la vista ---
     total_snapshots = serializers.IntegerField()
+    snapshots_today = serializers.IntegerField()
     total_changes_detected = serializers.IntegerField()
+    changes_today = serializers.IntegerField()
     active_monitoring_jobs = serializers.IntegerField()
-    monitored_layers = serializers.IntegerField()
-    recent_changes = serializers.IntegerField()
+    # Cambiado de 'monitored_layers' a 'layers_monitored'
+    layers_monitored = serializers.IntegerField()
     average_detection_time_ms = serializers.FloatField()
-    change_detection_accuracy = serializers.FloatField()
+    latest_health_status = serializers.CharField()
+    # Removido 'change_detection_accuracy' porque no se calcula en la vista
+    # change_detection_accuracy = serializers.FloatField()
+    # --- FIN CORRECCIÓN ---
 
 
 class TriggerMonitoringSerializer(serializers.Serializer):
     """Serializer for triggering monitoring"""
     
     layer_ids = serializers.ListField(
-        child=serializers.UUIDField(),
+        child=serializers.UUIDField(), # Asumiendo que SpatialLayer.id es UUIDField
         required=False,
         help_text='Specific layer IDs to monitor. If empty, monitor all active layers.'
     )

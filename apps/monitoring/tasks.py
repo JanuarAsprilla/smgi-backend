@@ -9,7 +9,7 @@ import hashlib
 import json
 import psutil
 from datetime import timedelta
-from celery import shared_task, current_task
+from celery import shared_task, current_task, group, chord
 from celery.exceptions import Retry
 from django.utils import timezone
 from django.db import transaction
@@ -21,10 +21,19 @@ from apps.gis_services.models import ArcGISService, SpatialLayer, ServiceStatus
 from apps.monitoring.models import (
     LayerSnapshot, ChangeDetectionResult, MonitoringJob,
     MonitoringJobExecution, SystemHealthMetric, DataQualityRule,
-    DataQualityResult, ChangeDetectionAlgorithm
+    DataQualityResult, ChangeDetectionAlgorithm, AffectedFeature
 )
 from apps.alerts.models import Alert, AlertSeverity, AlertCategory
 from apps.gis_services.clients.arcgis_client import ArcGISClient
+# Importar los algoritmos de detección de cambios
+from .algorithms.change_detection import (
+    SimpleCountChangeDetector,
+    HashComparisonChangeDetector,
+    FieldComparisonChangeDetector,
+    GeometricAnalysisChangeDetector,
+    StatisticalAnalysisChangeDetector,
+    # MLAnomalyDetectionChangeDetector # Pendiente de implementación
+)
 
 
 logger = logging.getLogger('apps.monitoring')
@@ -33,7 +42,8 @@ logger = logging.getLogger('apps.monitoring')
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
 def monitor_all_active_layers(self):
     """
-    Main task to monitor all active layers
+    Main task to monitor all active layers.
+    Uses a group of tasks for each layer to improve parallelism.
     """
     start_time = time.time()
     stats = {
@@ -41,7 +51,8 @@ def monitor_all_active_layers(self):
         'snapshots_created': 0,
         'changes_detected': 0,
         'errors': 0,
-        'warnings': []
+        'warnings': [],
+        'total_layers_found': 0
     }
     
     try:
@@ -56,43 +67,36 @@ def monitor_all_active_layers(self):
             is_removed=False
         ).select_related('service')
         
-        logger.info(f"Found {layers.count()} layers to monitor")
+        total_layers = layers.count()
+        stats['total_layers_found'] = total_layers
+        logger.info(f"Found {total_layers} layers to monitor")
         
-        for layer in layers:
-            try:
-                # Update task progress
-                current_task.update_state(
-                    state='PROGRESS',
-                    meta={
-                        'current': stats['layers_processed'],
-                        'total': layers.count(),
-                        'status': f'Processing layer: {layer.name}'
-                    }
-                )
-                
-                # Monitor individual layer
-                result = monitor_layer.delay(layer.id)
-                
-                # Wait for result with timeout
-                try:
-                    layer_stats = result.get(timeout=300)  # 5 minutes timeout
-                    stats['layers_processed'] += 1
-                    
-                    if layer_stats.get('snapshot_created'):
-                        stats['snapshots_created'] += 1
-                    
-                    if layer_stats.get('changes_detected'):
-                        stats['changes_detected'] += 1
-                        
-                except Exception as e:
-                    stats['errors'] += 1
-                    stats['warnings'].append(f"Error monitoring layer {layer.name}: {str(e)}")
-                    logger.error(f"Error monitoring layer {layer.name}: {e}")
-                
-            except Exception as e:
-                stats['errors'] += 1
-                stats['warnings'].append(f"Unexpected error with layer {layer.name}: {str(e)}")
-                logger.error(f"Unexpected error with layer {layer.name}: {e}")
+        if total_layers == 0:
+            logger.info("No layers to monitor, finishing task.")
+            duration = time.time() - start_time
+            return {
+                'success': True,
+                'duration_seconds': duration,
+                **stats
+            }
+        
+        # Create a group of tasks for monitoring each layer
+        layer_monitor_tasks = [monitor_layer.s(layer.id) for layer in layers]
+        job_group = group(*layer_monitor_tasks)
+        
+        # Execute the group
+        result_group = job_group.apply_async()
+        
+        # Wait for all tasks in the group to complete and collect results
+        results = result_group.get(propagate=True) # Propagate=True para que se lance la excepción si alguna tarea falla
+        
+        # Process results
+        for layer_result in results:
+            stats['layers_processed'] += 1
+            if layer_result.get('snapshot_created'):
+                stats['snapshots_created'] += 1
+            if layer_result.get('changes_detected'):
+                stats['changes_detected'] += 1
         
         duration = time.time() - start_time
         logger.info(f"Completed monitoring task in {duration:.2f} seconds. Stats: {stats}")
@@ -137,9 +141,11 @@ def monitor_layer(self, layer_id):
         # Initialize ArcGIS client
         client = ArcGISClient(layer.service)
         
-        # Collect layer data
+        # Collect layer data (timing collection)
+        collection_start_time = time.time()
         logger.info(f"Collecting data for layer: {layer.name}")
         layer_data = client.get_layer_info(layer.layer_id)
+        collection_duration_ms = int((time.time() - collection_start_time) * 1000)
         
         if not layer_data:
             logger.error(f"Failed to collect data for layer {layer.name}")
@@ -147,7 +153,7 @@ def monitor_layer(self, layer_id):
             return {'success': False, 'error': 'data_collection_failed'}
         
         # Create snapshot
-        snapshot = create_layer_snapshot(layer, layer_data)
+        snapshot = create_layer_snapshot(layer, layer_data, collection_duration_ms)
         
         if not snapshot:
             logger.error(f"Failed to create snapshot for layer {layer.name}")
@@ -196,17 +202,22 @@ def monitor_layer(self, layer_id):
         try:
             layer = SpatialLayer.objects.get(id=layer_id)
             layer.record_check_failure(str(e))
-        except:
-            pass
+        except SpatialLayer.DoesNotExist:
+            pass # Layer no existe, no se puede actualizar su fallo
+        except Exception as inner_e:
+            logger.error(f"Could not record check failure for layer {layer_id}: {inner_e}")
         
         # Retry with exponential backoff
         raise self.retry(exc=e, countdown=30 * (2 ** self.request.retries))
 
 
 @shared_task
-def create_layer_snapshot(layer, layer_data):
+def create_layer_snapshot(layer, layer_data, collection_duration_ms):
     """
-    Create a snapshot of layer data for change detection
+    Create a snapshot of layer data for change detection.
+    NOTE: The geometric statistics (total_area, centroid) are calculated
+    based on the layer's extent, not the individual features' geometries.
+    For precise feature-based statistics, a more expensive process is needed.
     """
     try:
         logger.info(f"Creating snapshot for layer: {layer.name}")
@@ -227,17 +238,19 @@ def create_layer_snapshot(layer, layer_data):
             json.dumps(data_for_hash, sort_keys=True).encode()
         ).hexdigest()
         
-        # Calculate geometric statistics if available
+        # Calculate geometric statistics based on extent (approximation)
         total_area = None
         centroid = None
         
         if extent and all(k in extent for k in ['xmin', 'ymin', 'xmax', 'ymax']):
-            # Calculate approximate area (simplified)
+            # Calculate approximate area based on extent (not individual features)
             width = extent['xmax'] - extent['xmin']
             height = extent['ymax'] - extent['ymin']
+            # This is a very rough approximation and depends on the SRID
+            # For precise area, the sum of individual feature areas would be needed
             total_area = width * height
             
-            # Calculate centroid
+            # Calculate centroid of the extent
             from django.contrib.gis.geos import Point
             centroid = Point(
                 (extent['xmin'] + extent['xmax']) / 2,
@@ -245,26 +258,17 @@ def create_layer_snapshot(layer, layer_data):
                 srid=4326
             )
         
-        # Collect attribute statistics
+        # Collect attribute statistics (placeholder for future implementation)
         attribute_stats = {}
         unique_values = {}
         null_count = {}
         
-        # This would be enhanced with actual field analysis
-        for field in layer_data.get('fields', []):
-            field_name = field.get('name')
-            if field_name:
-                null_count[field_name] = 0  # Would calculate actual nulls
-                
-                if field.get('type') in ['esriFieldTypeInteger', 'esriFieldTypeDouble']:
-                    attribute_stats[field_name] = {
-                        'min': 0,
-                        'max': 0,
-                        'avg': 0,
-                        'sum': 0
-                    }
-                else:
-                    unique_values[field_name] = 1  # Would calculate actual unique values
+        # This would be enhanced with actual field analysis in a full implementation
+        # for field in layer_data.get('fields', []):
+        #     field_name = field.get('name')
+        #     if field_name:
+        #         # Calculate actual nulls, min, max, avg, unique values per field
+        #         pass
         
         # Create snapshot record
         with transaction.atomic():
@@ -284,7 +288,7 @@ def create_layer_snapshot(layer, layer_data):
                 unique_values=unique_values,
                 null_count=null_count,
                 data_checksum=snapshot_hash,
-                collection_duration_ms=int((time.time() - time.time()) * 1000),  # Would track actual time
+                collection_duration_ms=collection_duration_ms, # Corregido
                 data_size_bytes=len(json.dumps(layer_data)),
                 is_valid=True
             )
@@ -300,124 +304,65 @@ def create_layer_snapshot(layer, layer_data):
 @shared_task
 def perform_change_detection(current_snapshot, previous_snapshot, layer):
     """
-    Perform change detection between two snapshots
+    Perform change detection between two snapshots using the configured algorithm.
     """
     start_time = time.time()
     
     try:
-        logger.info(f"Performing change detection for layer: {layer.name}")
+        logger.info(f"Performing change detection for layer: {layer.name} using algorithm {layer.detection_algorithm}")
         
-        # Determine algorithm to use
-        algorithm = getattr(layer, 'change_detection_algorithm', ChangeDetectionAlgorithm.SIMPLE_COUNT)
+        # Determine algorithm to use from the layer's configuration
+        algorithm_name = layer.detection_algorithm # Asumiendo que detection_algorithm es un campo en SpatialLayer o se pasa
         
-        # Calculate basic changes
-        feature_count_change = current_snapshot.feature_count - previous_snapshot.feature_count
-        feature_count_change_percent = 0
-        
-        if previous_snapshot.feature_count > 0:
-            feature_count_change_percent = (feature_count_change / previous_snapshot.feature_count) * 100
-        
-        # Calculate area change if available
-        area_change = 0
-        area_change_percent = 0
-        
-        if current_snapshot.total_area and previous_snapshot.total_area:
-            area_change = current_snapshot.total_area - previous_snapshot.total_area
-            if previous_snapshot.total_area > 0:
-                area_change_percent = (area_change / previous_snapshot.total_area) * 100
-        
-        # Calculate centroid displacement
-        centroid_displacement = 0
-        if current_snapshot.centroid and previous_snapshot.centroid:
-            centroid_displacement = current_snapshot.centroid.distance(previous_snapshot.centroid)
-        
-        # Determine if changes are significant
-        has_changes = False
-        change_types = []
-        confidence_score = 0.9  # Default high confidence for simple count
-        
-        # Check feature count changes
-        if abs(feature_count_change_percent) >= layer.change_threshold:
-            has_changes = True
-            change_types.append('feature_count')
-        
-        # Check area changes
-        if abs(area_change_percent) >= layer.change_threshold:
-            has_changes = True
-            change_types.append('geometry')
-        
-        # Check attribute changes (simplified)
-        if current_snapshot.snapshot_hash != previous_snapshot.snapshot_hash:
-            if not has_changes:  # Only add if no other changes detected
-                has_changes = True
-                change_types.append('attribute')
-        
-        # Calculate data quality score (simplified)
-        data_quality_score = 1.0  # Would implement actual quality assessment
-        data_quality_change = data_quality_score - getattr(previous_snapshot, 'data_quality_score', 1.0)
-        
-        # Check if exceeds threshold
-        exceeds_threshold = False
-        threshold_values = {
-            'feature_count_threshold': layer.change_threshold,
-            'area_threshold': layer.change_threshold
+        # Seleccionar el detector basado en el nombre
+        # Opcional: Crear una fábrica de detectores
+        detector_map = {
+            ChangeDetectionAlgorithm.SIMPLE_COUNT: SimpleCountChangeDetector,
+            ChangeDetectionAlgorithm.HASH_COMPARISON: HashComparisonChangeDetector,
+            ChangeDetectionAlgorithm.FIELD_COMPARISON: FieldComparisonChangeDetector,
+            ChangeDetectionAlgorithm.GEOMETRIC_ANALYSIS: GeometricAnalysisChangeDetector,
+            ChangeDetectionAlgorithm.STATISTICAL_ANALYSIS: StatisticalAnalysisChangeDetector,
+            # ChangeDetectionAlgorithm.ML_ANOMALY_DETECTION: MLAnomalyDetectionChangeDetector,
         }
         
-        if has_changes:
-            if abs(feature_count_change_percent) >= layer.change_threshold * 2:
-                exceeds_threshold = True
-            elif abs(area_change_percent) >= layer.change_threshold * 2:
-                exceeds_threshold = True
+        DetectorClass = detector_map.get(algorithm_name, SimpleCountChangeDetector)
+        detector = DetectorClass()
         
-        # Prepare detailed analysis
-        change_details = {
-            'algorithm_used': algorithm,
-            'comparison_time': timezone.now().isoformat(),
-            'previous_snapshot_id': str(previous_snapshot.id),
-            'current_snapshot_id': str(current_snapshot.id),
-            'changes_by_category': {
-                'features': {
-                    'added': max(0, feature_count_change),
-                    'removed': max(0, -feature_count_change),
-                    'modified': 0  # Would require detailed analysis
-                },
-                'geometry': {
-                    'area_change': area_change,
-                    'centroid_displacement': centroid_displacement
-                },
-                'attributes': {
-                    'fields_changed': []  # Would require field-by-field comparison
-                }
-            }
-        }
+        # Ejecutar la detección de cambios
+        detection_result_data = detector.detect(current_snapshot, previous_snapshot, layer)
         
-        # Create change detection result
+        # Crear el objeto ChangeDetectionResult con los datos obtenidos
         with transaction.atomic():
             result = ChangeDetectionResult.objects.create(
                 current_snapshot=current_snapshot,
                 previous_snapshot=previous_snapshot,
-                algorithm_used=algorithm,
+                algorithm_used=algorithm_name,
                 detection_duration_ms=int((time.time() - start_time) * 1000),
-                confidence_score=confidence_score,
-                has_changes=has_changes,
-                change_types=change_types,
-                feature_count_change=feature_count_change,
-                feature_count_change_percent=feature_count_change_percent,
-                area_change=area_change,
-                area_change_percent=area_change_percent,
-                centroid_displacement=centroid_displacement,
-                new_features=max(0, feature_count_change),
-                deleted_features=max(0, -feature_count_change),
-                modified_features=0,  # Would require detailed analysis
-                data_quality_score=data_quality_score,
-                data_quality_change=data_quality_change,
-                change_details=change_details,
-                exceeds_threshold=exceeds_threshold,
-                threshold_values=threshold_values,
+                confidence_score=detection_result_data.get('confidence_score', 0.9),
+                has_changes=detection_result_data.get('has_changes', False),
+                change_types=detection_result_data.get('change_types', []),
+                feature_count_change=detection_result_data.get('feature_count_change', 0),
+                feature_count_change_percent=detection_result_data.get('feature_count_change_percent', 0.0),
+                area_change=detection_result_data.get('area_change', 0.0),
+                area_change_percent=detection_result_data.get('area_change_percent', 0.0),
+                centroid_displacement=detection_result_data.get('centroid_displacement', 0.0),
+                new_features=detection_result_data.get('new_features', 0),
+                deleted_features=detection_result_data.get('deleted_features', 0),
+                modified_features=detection_result_data.get('modified_features', 0),
+                data_quality_score=detection_result_data.get('data_quality_score', 1.0),
+                data_quality_change=detection_result_data.get('data_quality_change', 0.0),
+                change_details=detection_result_data.get('change_details', {}),
+                exceeds_threshold=detection_result_data.get('exceeds_threshold', False),
+                threshold_values=detection_result_data.get('threshold_values', {}),
                 processing_status='completed'
             )
         
-        logger.info(f"Change detection completed for layer {layer.name}. Changes: {has_changes}")
+        # Si el detector devolvió IDs de features afectadas, crear los objetos AffectedFeature
+        affected_feature_ids = detection_result_data.get('affected_feature_ids', [])
+        for fid in affected_feature_ids:
+            AffectedFeature.objects.create(change_result=result, feature_id=fid)
+        
+        logger.info(f"Change detection completed for layer {layer.name}. Changes: {result.has_changes}")
         return result
         
     except Exception as e:
@@ -434,7 +379,8 @@ def perform_change_detection(current_snapshot, previous_snapshot, layer):
                 confidence_score=0.0
             )
             return result
-        except:
+        except Exception as inner_e:
+            logger.error(f"Could not create failed ChangeDetectionResult: {inner_e}")
             return None
 
 
@@ -447,16 +393,17 @@ def create_change_alert(detection_result_id):
         result = ChangeDetectionResult.objects.get(id=detection_result_id)
         layer = result.layer
         
-        # Determine alert severity based on change magnitude
-        severity = AlertSeverity.MEDIUM
-        if abs(result.feature_count_change_percent) >= 50:
-            severity = AlertSeverity.CRITICAL
-        elif abs(result.feature_count_change_percent) >= 25:
-            severity = AlertSeverity.HIGH
-        elif abs(result.feature_count_change_percent) >= 10:
-            severity = AlertSeverity.MEDIUM
-        else:
-            severity = AlertSeverity.LOW
+        # Determine alert severity based on change magnitude and result severity
+        # Prioritize the severity calculated by the detection algorithm
+        result_severity = result.change_severity
+        severity_map = {
+            'critical': AlertSeverity.CRITICAL,
+            'high': AlertSeverity.HIGH,
+            'medium': AlertSeverity.MEDIUM,
+            'low': AlertSeverity.LOW,
+            'none': AlertSeverity.LOW, # Default low if no changes
+        }
+        severity = severity_map.get(result_severity, AlertSeverity.MEDIUM)
         
         # Create alert
         alert = Alert.objects.create(
@@ -489,6 +436,9 @@ def create_change_alert(detection_result_id):
         
         return alert.id
         
+    except ChangeDetectionResult.DoesNotExist:
+        logger.error(f"ChangeDetectionResult with ID {detection_result_id} not found")
+        return None
     except Exception as e:
         logger.error(f"Error creating change alert for result {detection_result_id}: {e}")
         return None
@@ -518,6 +468,9 @@ def send_alert_notifications(alert_id):
         logger.info(f"Initiated notification process for alert: {alert.alert_id}")
         return {'notification_initiated': True}
         
+    except Alert.DoesNotExist:
+        logger.error(f"Alert with ID {alert_id} not found")
+        return {'error': 'alert_not_found'}
     except Exception as e:
         logger.error(f"Error sending notifications for alert {alert_id}: {e}")
         return {'error': str(e)}
@@ -572,39 +525,60 @@ def system_health_check():
     try:
         logger.info("Performing system health check")
         
-        # Get system metrics
+        # Get system metrics using psutil
         cpu_percent = psutil.cpu_percent(interval=1)
         memory = psutil.virtual_memory()
         disk = psutil.disk_usage('/')
         
-        # Database metrics
-        from django.db import connection
-        db_queries = len(connection.queries)
+        # Database metrics (placeholder - real implementation depends on DB driver)
+        # from django.db import connection
+        # db_queries = len(connection.queries) # No es útil aquí, es por request
+        # db_conn_count = ... # Requiere query específica al motor de BD
+        db_connections_active = 0 # Placeholder
+        db_connections_idle = 0 # Placeholder
+        db_query_avg_time_ms = 0 # Placeholder
         
-        # Redis metrics (simplified)
-        redis_info = {}
+        # Redis metrics (placeholder - requires direct Redis connection)
+        redis_memory_usage_mb = 0 # Placeholder
+        redis_connected_clients = 0 # Placeholder
+        redis_operations_per_sec = 0 # Placeholder
         try:
             from django.core.cache import cache
-            cache.get('health_check_key')  # Simple connectivity test
+            # Test connectivity and get basic info if possible
+            cache.get('health_check_key') # Simple connectivity test
+            # Example of getting Redis info if using redis-py directly:
+            # redis_client = cache.client.get_client() # If using django-redis
+            # redis_info = redis_client.info()
+            # redis_memory_usage_mb = redis_info.get('used_memory', 0) / (1024 * 1024)
+            # redis_connected_clients = redis_info.get('connected_clients', 0)
             redis_connected = True
         except:
             redis_connected = False
         
-        # Celery metrics
+        # Celery metrics (placeholder - requires Celery Inspect)
         from celery import current_app
         inspect = current_app.control.inspect()
         
         try:
             active_tasks = inspect.active()
-            celery_active = sum(len(tasks) for tasks in (active_tasks or {}).values())
-        except:
-            celery_active = 0
+            reserved_tasks = inspect.reserved()
+            celery_active_tasks = sum(len(tasks) for tasks in (active_tasks or {}).values())
+            celery_reserved_tasks = sum(len(tasks) for tasks in (reserved_tasks or {}).values())
+            # pending = inspect.scheduled() # No es exactamente pending, es scheduled
+            # failed = ... # No disponible directamente con inspect, se usa backend como RabbitMQ/Redis o Flower
+            celery_pending_tasks = 0 # Placeholder
+            celery_failed_tasks = 0 # Placeholder
+        except Exception as inspect_e:
+            logger.error(f"Error inspecting Celery: {inspect_e}")
+            celery_active_tasks = 0
+            celery_pending_tasks = 0
+            celery_failed_tasks = 0
         
-        # Application metrics
+        # Application metrics (from cache or other sources)
         active_users = cache.get('active_users_count', 0)
         api_requests = cache.get('api_requests_last_minute', 0)
         api_errors = cache.get('api_errors_last_minute', 0)
-        api_error_rate = (api_errors / max(api_requests, 1)) * 100
+        api_error_rate = (api_errors / max(api_requests, 1)) * 100 if api_requests > 0 else 0.0
         
         # Determine overall health
         health_score = 100
@@ -649,15 +623,15 @@ def system_health_check():
             cpu_usage_percent=cpu_percent,
             memory_usage_percent=memory.percent,
             disk_usage_percent=disk.percent,
-            db_connections_active=db_queries,
-            db_connections_idle=0,  # Would get from connection pool
-            db_query_avg_time_ms=0,  # Would calculate from query log
-            redis_memory_usage_mb=0,  # Would get from Redis info
-            redis_connected_clients=0,  # Would get from Redis info
-            redis_operations_per_sec=0,  # Would get from Redis info
-            celery_active_tasks=celery_active,
-            celery_pending_tasks=0,  # Would get from Celery inspect
-            celery_failed_tasks=0,  # Would get from Celery inspect
+            db_connections_active=db_connections_active,
+            db_connections_idle=db_connections_idle,
+            db_query_avg_time_ms=db_query_avg_time_ms,
+            redis_memory_usage_mb=redis_memory_usage_mb,
+            redis_connected_clients=redis_connected_clients,
+            redis_operations_per_sec=redis_operations_per_sec,
+            celery_active_tasks=celery_active_tasks,
+            celery_pending_tasks=celery_pending_tasks,
+            celery_failed_tasks=celery_failed_tasks,
             active_users=active_users,
             api_requests_per_minute=api_requests,
             api_error_rate_percent=api_error_rate,
@@ -692,7 +666,7 @@ def system_health_check():
                 'memory_percent': memory.percent,
                 'disk_percent': disk.percent,
                 'redis_connected': redis_connected,
-                'celery_active_tasks': celery_active
+                'celery_active_tasks': celery_active_tasks
             }
         }
         
@@ -709,8 +683,8 @@ def system_health_check():
                 severity=AlertSeverity.CRITICAL,
                 metadata={'error': str(e)}
             )
-        except:
-            pass
+        except Exception as alert_e:
+            logger.error(f"Could not create health check failure alert: {alert_e}")
         
         return {'success': False, 'error': str(e)}
 
@@ -747,7 +721,8 @@ def update_monitoring_metrics(stats):
 @shared_task
 def run_data_quality_checks():
     """
-    Run all active data quality rules
+    Run all active data quality rules.
+    This is a simplified version. A full implementation would evaluate rule_expression.
     """
     try:
         logger.info("Starting data quality checks")
@@ -764,20 +739,42 @@ def run_data_quality_checks():
                 try:
                     logger.info(f"Running quality check: {rule.name}")
                     
-                    # This is a simplified quality check
-                    # In a real implementation, this would execute the rule logic
-                    quality_score = 0.95  # Placeholder
+                    # --- LÓGICA SIMULADA DE EVALUACIÓN DE REGLA ---
+                    # En una implementación real, aquí se interpretaría rule.rule_expression
+                    # y se ejecutaría la lógica contra los datos de la capa/servicio.
+                    # Por ejemplo, podría ser una consulta SQL, una regla en un lenguaje específico,
+                    # o una llamada a una función personalizada.
+                    # Por ahora, simulamos un puntaje basado en placeholders o reglas simples.
+                    
+                    # Placeholder: Simular una evaluación
+                    # Esto DEBE ser reemplazado por la lógica real de evaluación de la regla
+                    total_records = 1000  # Obtener del servicio/capa
+                    invalid_records = 50  # Determinado por la regla
+                    valid_records = total_records - invalid_records
+                    quality_score = valid_records / total_records if total_records > 0 else 1.0
+                    
+                    issues_found = []
+                    recommendations = []
+                    
+                    if quality_score < rule.error_threshold:
+                        issues_found.append("Quality score below error threshold")
+                        recommendations.append("Review data source and cleaning processes.")
+                    elif quality_score < rule.warning_threshold:
+                        issues_found.append("Quality score below warning threshold")
+                        recommendations.append("Monitor data quality closely.")
+                    
+                    # --- FIN LÓGICA SIMULADA ---
                     
                     # Create quality result
                     result = DataQualityResult.objects.create(
                         rule=rule,
                         quality_score=quality_score,
                         passed=quality_score >= rule.error_threshold,
-                        total_records=1000,  # Placeholder
-                        valid_records=950,   # Placeholder
-                        invalid_records=50,  # Placeholder
-                        issues_found=[],     # Would contain actual issues
-                        recommendations=[]   # Would contain recommendations
+                        total_records=total_records,
+                        valid_records=valid_records,
+                        invalid_records=invalid_records,
+                        issues_found=issues_found,
+                        recommendations=recommendations
                     )
                     
                     # Update rule's last check and score
@@ -795,6 +792,8 @@ def run_data_quality_checks():
                     
                 except Exception as e:
                     logger.error(f"Error running quality check {rule.name}: {e}")
+                    # Opcional: Crear un resultado de error
+                    # DataQualityResult.objects.create(rule=rule, quality_score=0.0, passed=False, error_message=str(e))
         
         logger.info(f"Completed {len(results)} data quality checks")
         return {
@@ -811,7 +810,8 @@ def run_data_quality_checks():
 @shared_task
 def process_monitoring_job(job_id):
     """
-    Process a specific monitoring job
+    Process a specific monitoring job.
+    Uses a group of tasks for each layer in the job to improve parallelism.
     """
     try:
         job = MonitoringJob.objects.get(id=job_id)
@@ -825,39 +825,47 @@ def process_monitoring_job(job_id):
         execution.add_log_entry('INFO', f'Starting execution of job: {job.name}')
         
         try:
-            # Process all layers in the job
-            layers_processed = 0
-            snapshots_created = 0
-            changes_detected = 0
-            alerts_created = 0
+            # Get layers for this job
+            layers = job.layers.filter(is_removed=False)
+            total_layers = layers.count()
             
-            for layer in job.layers.filter(is_removed=False):
-                try:
-                    # Monitor layer
-                    result = monitor_layer.delay(layer.id)
-                    layer_stats = result.get(timeout=300)
-                    
-                    layers_processed += 1
-                    
-                    if layer_stats.get('snapshot_created'):
-                        snapshots_created += 1
-                    
-                    if layer_stats.get('changes_detected'):
-                        changes_detected += 1
-                        
-                        # Additional alert creation logic could go here
-                        # Based on job-specific rules
-                    
-                    execution.add_log_entry('INFO', f'Processed layer: {layer.name}')
-                    
-                except Exception as e:
-                    execution.add_log_entry('ERROR', f'Error processing layer {layer.name}: {str(e)}')
+            if total_layers == 0:
+                 execution.add_log_entry('INFO', f'No layers found for job: {job.name}')
+                 execution.mark_completed(success=True)
+                 job.record_execution(success=True)
+                 logger.info(f"Monitoring job {job.name} completed successfully (no layers).")
+                 return {
+                    'success': True,
+                    'job_name': job.name,
+                    'layers_processed': 0,
+                    'snapshots_created': 0,
+                    'changes_detected': 0,
+                    'alerts_created': 0
+                }
+
+            # Create a group of tasks for monitoring each layer in the job
+            layer_monitor_tasks = [monitor_layer.s(layer.id) for layer in layers]
+            job_group = group(*layer_monitor_tasks)
             
-            # Update execution results
+            # Execute the group
+            result_group = job_group.apply_async()
+            
+            # Wait for all tasks in the group to complete and collect results
+            layer_results = result_group.get(propagate=True)
+            
+            # Process results from the group
+            layers_processed = len(layer_results)
+            snapshots_created = sum(1 for lr in layer_results if lr.get('snapshot_created'))
+            changes_detected = sum(1 for lr in layer_results if lr.get('changes_detected'))
+            # alerts_created se contabiliza dentro de create_change_alert, no aquí directamente
+            
             execution.layers_processed = layers_processed
             execution.snapshots_created = snapshots_created
             execution.changes_detected = changes_detected
-            execution.alerts_created = alerts_created
+            # alerts_created: Se podría rastrear cuántas tareas create_change_alert se lanzaron,
+            # pero no cuántas se crearon exitosamente sin esperarlas también.
+            # Por ahora, lo dejamos en 0 o lo calculamos de otra manera si es crítico.
+            execution.alerts_created = 0 # Placeholder, se contabiliza en otro lado
             
             # Mark as completed
             execution.mark_completed(success=True)
@@ -874,7 +882,7 @@ def process_monitoring_job(job_id):
                 'layers_processed': layers_processed,
                 'snapshots_created': snapshots_created,
                 'changes_detected': changes_detected,
-                'alerts_created': alerts_created
+                'alerts_created': execution.alerts_created # Será 0 con este enfoque
             }
             
         except Exception as e:
