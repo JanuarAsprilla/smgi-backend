@@ -1,0 +1,14 @@
+version: '3.8'
+services:
+  db:
+    image: postgis/postgis:15-3.4
+    environment:
+      POSTGRES_DB: smgi_db
+      POSTGRES_USER: smgi_user
+      POSTGRES_PASSWORD: smgi_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:

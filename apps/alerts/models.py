@@ -58,7 +58,7 @@ class Alert(BaseModel):
         db_index=True,
         help_text=_('Unique identifier for this alert')
     )
-    
+
     # Classification
     category = models.CharField(
         _('Category'),
@@ -74,7 +74,7 @@ class Alert(BaseModel):
         default=AlertSeverity.MEDIUM,
         db_index=True
     )
-    
+
     # Source information
     service = models.ForeignKey(
         ArcGISService,
@@ -90,12 +90,9 @@ class Alert(BaseModel):
         blank=True,
         null=True
     )
-    
+
     # Alert details
-    affected_features_count = models.PositiveIntegerField(
-        _('Affected Features Count'),
-        default=0
-    )
+    affected_features_count = models.PositiveIntegerField(_('Affected Features Count'), default=0)
     change_percentage = models.FloatField(
         _('Change Percentage'),
         blank=True,
@@ -104,7 +101,7 @@ class Alert(BaseModel):
     )
     threshold_value = models.FloatField(_('Threshold Value'), blank=True, null=True)
     actual_value = models.FloatField(_('Actual Value'), blank=True, null=True)
-    
+
     # Geographic extent of the alert
     alert_extent = models.PolygonField(
         _('Alert Extent'),
@@ -113,7 +110,7 @@ class Alert(BaseModel):
         srid=4326,
         help_text=_('Geographic extent affected by this alert')
     )
-    
+
     # Alert metadata
     metadata = models.JSONField(
         _('Alert Metadata'),
@@ -128,7 +125,7 @@ class Alert(BaseModel):
         blank=True,
         verbose_name=_('Tags')
     )
-    
+
     # Status and lifecycle
     status = models.CharField(
         _('Status'),
@@ -137,14 +134,14 @@ class Alert(BaseModel):
         default=AlertStatus.ACTIVE,
         db_index=True
     )
-    
+
     # Time tracking
     first_detected = models.DateTimeField(_('First Detected'), auto_now_add=True)
     last_updated = models.DateTimeField(_('Last Updated'), auto_now=True)
     acknowledged_at = models.DateTimeField(_('Acknowledged At'), blank=True, null=True)
     resolved_at = models.DateTimeField(_('Resolved At'), blank=True, null=True)
     expires_at = models.DateTimeField(_('Expires At'), blank=True, null=True)
-    
+
     # Assignment and tracking
     assigned_to = models.ForeignKey(
         User,
@@ -170,7 +167,7 @@ class Alert(BaseModel):
         related_name='resolved_alerts',
         verbose_name=_('Resolved By')
     )
-    
+
     # Alert configuration
     auto_resolve = models.BooleanField(_('Auto Resolve'), default=False)
     auto_resolve_duration = models.PositiveIntegerField(
@@ -184,16 +181,12 @@ class Alert(BaseModel):
         _('Suppression Duration (minutes)'),
         default=60
     )
-    
+
     # Notification tracking
     notification_sent = models.BooleanField(_('Notification Sent'), default=False)
     notification_count = models.PositiveIntegerField(_('Notification Count'), default=0)
-    last_notification_sent = models.DateTimeField(
-        _('Last Notification Sent'),
-        blank=True,
-        null=True
-    )
-    
+    last_notification_sent = models.DateTimeField(_('Last Notification Sent'), blank=True, null=True)
+
     # External references
     external_ticket_id = models.CharField(
         _('External Ticket ID'),
@@ -208,7 +201,7 @@ class Alert(BaseModel):
         related_name='parent_alerts',
         verbose_name=_('Related Alerts')
     )
-    
+
     class Meta:
         db_table = 'alerts_alert'
         verbose_name = _('Alert')
@@ -226,47 +219,48 @@ class Alert(BaseModel):
             models.Index(fields=['expires_at']),
             models.Index(fields=['notification_sent']),
         ]
-    
+
     def __str__(self):
         return f"[{self.get_severity_display()}] {self.title}"
-    
+
+    # -------------------
+    # Helper Properties
+    # -------------------
     @property
     def age_hours(self):
         """Calculate alert age in hours"""
         return (timezone.now() - self.first_detected).total_seconds() / 3600
-    
+
     @property
     def is_expired(self):
         """Check if alert has expired"""
-        if not self.expires_at:
-            return False
-        return timezone.now() > self.expires_at
-    
+        return self.expires_at and timezone.now() > self.expires_at
+
     @property
     def should_auto_resolve(self):
         """Check if alert should be auto-resolved"""
         if not self.auto_resolve or not self.auto_resolve_duration:
             return False
-        
-        auto_resolve_time = self.first_detected + timezone.timedelta(
-            hours=self.auto_resolve_duration
-        )
+        auto_resolve_time = self.first_detected + timezone.timedelta(hours=self.auto_resolve_duration)
         return timezone.now() > auto_resolve_time
-    
+
     @property
     def time_to_acknowledge(self):
         """Calculate time taken to acknowledge alert"""
         if not self.acknowledged_at:
             return None
         return (self.acknowledged_at - self.first_detected).total_seconds()
-    
+
     @property
     def time_to_resolve(self):
         """Calculate time taken to resolve alert"""
         if not self.resolved_at:
             return None
         return (self.resolved_at - self.first_detected).total_seconds()
-    
+
+    # -------------------
+    # Business Logic
+    # -------------------
     def acknowledge(self, user, notes=None):
         """Acknowledge this alert"""
         if self.status == AlertStatus.ACTIVE:
@@ -274,18 +268,10 @@ class Alert(BaseModel):
             self.acknowledged_by = user
             self.acknowledged_at = timezone.now()
             self.save(update_fields=['status', 'acknowledged_by', 'acknowledged_at'])
-            
-            # Create alert action record
-            AlertAction.objects.create(
-                alert=self,
-                action_type=AlertActionType.ACKNOWLEDGED,
-                user=user,
-                notes=notes or ''
-            )
-            
+            AlertAction.objects.create(alert=self, action_type=AlertActionType.ACKNOWLEDGED, user=user, notes=notes or '')
             return True
         return False
-    
+
     def resolve(self, user, notes=None):
         """Resolve this alert"""
         if self.status in [AlertStatus.ACTIVE, AlertStatus.ACKNOWLEDGED]:
@@ -293,48 +279,30 @@ class Alert(BaseModel):
             self.resolved_by = user
             self.resolved_at = timezone.now()
             self.save(update_fields=['status', 'resolved_by', 'resolved_at'])
-            
-            # Create alert action record
-            AlertAction.objects.create(
-                alert=self,
-                action_type=AlertActionType.RESOLVED,
-                user=user,
-                notes=notes or ''
-            )
-            
+            AlertAction.objects.create(alert=self, action_type=AlertActionType.RESOLVED, user=user, notes=notes or '')
             return True
         return False
-    
+
     def dismiss(self, user, notes=None):
         """Dismiss this alert"""
         if self.status != AlertStatus.DISMISSED:
             self.status = AlertStatus.DISMISSED
             self.save(update_fields=['status'])
-            
-            # Create alert action record
-            AlertAction.objects.create(
-                alert=self,
-                action_type=AlertActionType.DISMISSED,
-                user=user,
-                notes=notes or ''
-            )
-            
+            AlertAction.objects.create(alert=self, action_type=AlertActionType.DISMISSED, user=user, notes=notes or '')
             return True
         return False
-    
+
     def assign_to(self, user, assigned_by):
         """Assign alert to a user"""
         self.assigned_to = user
         self.save(update_fields=['assigned_to'])
-        
-        # Create alert action record
         AlertAction.objects.create(
             alert=self,
             action_type=AlertActionType.ASSIGNED,
             user=assigned_by,
             notes=f'Assigned to {user.get_full_name()}'
         )
-    
+
     def add_comment(self, user, comment):
         """Add comment to alert"""
         AlertAction.objects.create(
@@ -343,11 +311,10 @@ class Alert(BaseModel):
             user=user,
             notes=comment
         )
-    
+
     def get_similar_active_alerts(self, minutes=60):
         """Get similar active alerts within specified time window"""
         similar_time = timezone.now() - timezone.timedelta(minutes=minutes)
-        
         return Alert.objects.filter(
             category=self.category,
             severity=self.severity,
@@ -356,23 +323,20 @@ class Alert(BaseModel):
             status=AlertStatus.ACTIVE,
             first_detected__gte=similar_time
         ).exclude(id=self.id)
-    
+
     def should_suppress_notifications(self):
         """Check if notifications should be suppressed due to similar alerts"""
         if not self.suppress_similar:
             return False
-        
         similar_alerts = self.get_similar_active_alerts(self.suppression_duration)
         return similar_alerts.exists()
-    
+
     def increment_notification_count(self):
         """Increment notification count and update last sent time"""
         self.notification_count += 1
         self.last_notification_sent = timezone.now()
         self.notification_sent = True
-        self.save(update_fields=[
-            'notification_count', 'last_notification_sent', 'notification_sent'
-        ])
+        self.save(update_fields=['notification_count', 'last_notification_sent', 'notification_sent'])
 
 
 class AlertActionType(models.TextChoices):
@@ -383,4 +347,22 @@ class AlertActionType(models.TextChoices):
     RESOLVED = 'resolved', _('Resolved')
     DISMISSED = 'dismissed', _('Dismissed')
     COMMENTED = 'commented', _('Commented')
-    ESCALATED = 'escal
+    ESCALATED = 'escalated', _('Escalated')
+
+
+class AlertAction(BaseModel):
+    """Records actions performed on alerts"""
+    alert = models.ForeignKey(Alert, on_delete=models.CASCADE, related_name='actions')
+    action_type = models.CharField(max_length=20, choices=AlertActionType.choices)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    notes = models.TextField(blank=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'alerts_action'
+        verbose_name = _('Alert Action')
+        verbose_name_plural = _('Alert Actions')
+        ordering = ['-timestamp']
+
+    def __str__(self):
+        return f"{self.get_action_type_display()} - {self.alert.title}"
