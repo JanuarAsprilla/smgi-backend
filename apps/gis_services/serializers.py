@@ -5,11 +5,12 @@ Sistema de Monitoreo Geoespacial Inteligente
 from rest_framework import serializers
 from rest_framework_gis.serializers import GeoFeatureModelSerializer
 from django.utils.translation import gettext_lazy as _
+from django.contrib.auth.hashers import make_password # Importar para cifrado
 
 from apps.gis_services.models import (
     ArcGISService, SpatialLayer, LayerField,
     ServiceEndpoint, ServiceConfiguration,
-    ServiceTag, ServiceMetrics
+    ServiceTag, ServiceMetrics, ServiceCredential # Añadido ServiceCredential
 )
 
 
@@ -102,7 +103,10 @@ class ArcGISServiceDetailSerializer(serializers.ModelSerializer):
 
 
 class ArcGISServiceCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating/updating services"""
+    """
+    Serializer for creating services.
+    Handles creation of credentials and configuration separately.
+    """
     
     tag_ids = serializers.PrimaryKeyRelatedField(
         many=True,
@@ -114,7 +118,7 @@ class ArcGISServiceCreateSerializer(serializers.ModelSerializer):
     
     # Optional credentials
     username = serializers.CharField(write_only=True, required=False, allow_blank=True)
-    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True, style={'input_type': 'password'})
     
     class Meta:
         model = ArcGISService
@@ -126,30 +130,39 @@ class ArcGISServiceCreateSerializer(serializers.ModelSerializer):
             'metadata', 'tag_ids'
         ]
     
+    def validate_password(self, value):
+        """Validate and hash the password if provided."""
+        if value: # Si se proporciona una contraseña, la hasheamos
+            return make_password(value)
+        return value # Si no, devolvemos el valor tal cual (vacío o None)
+
     def create(self, validated_data):
+        # Extraer campos de credenciales si están presentes
         username = validated_data.pop('username', None)
-        password = validated_data.pop('password', None)
+        password = validated_data.pop('password', None) # Ya debería estar hasheada por validate_password
         tags = validated_data.pop('tags', [])
         
-        # Set created_by from request context
-        validated_data['created_by'] = self.context['request'].user
+        # Asegurar que created_by se establezca desde el contexto
+        user = self.context['request'].user
+        validated_data['created_by'] = user
         
+        # Crear el servicio
         service = ArcGISService.objects.create(**validated_data)
         
-        # Add tags
+        # Asociar tags
         if tags:
             service.tags.set(tags)
         
-        # Create credentials if provided
-        if username or password:
-            from apps.gis_services.models import ServiceCredential
+        # Crear credenciales si se proporcionaron usuario/contraseña
+        if username or password: # password ya está hasheada o vacía
+            # Asumiendo que ServiceCredential tiene un campo 'password' que espera un hash
             ServiceCredential.objects.create(
                 service=service,
                 username=username or '',
-                password=password or ''  # Should be encrypted in production
+                password=password or ''  # Debe ser un hash si se proporcionó
             )
         
-        # Create default configuration
+        # Crear configuración por defecto
         ServiceConfiguration.objects.create(service=service)
         
         return service
@@ -189,11 +202,14 @@ class SpatialLayerListSerializer(serializers.ModelSerializer):
 
 
 class SpatialLayerDetailSerializer(GeoFeatureModelSerializer):
-    """Detailed serializer for spatial layer with geometry"""
+    """
+    Detailed serializer for spatial layer with geometry.
+    Uses 'layer_fields' as the source for the 'fields' field.
+    """
     
     service_name = serializers.CharField(source='service.name', read_only=True)
     service_status = serializers.CharField(source='service.status', read_only=True)
-    fields = LayerFieldSerializer(source='layer_fields', many=True, read_only=True)
+    fields = LayerFieldSerializer(source='layer_fields', many=True, read_only=True) # Correctamente mapeado
     full_name = serializers.ReadOnlyField()
     should_be_monitored = serializers.ReadOnlyField()
     change_percentage = serializers.ReadOnlyField()
@@ -229,7 +245,13 @@ class SpatialLayerDetailSerializer(GeoFeatureModelSerializer):
         return obj.created_by.get_full_name() if obj.created_by else None
     
     def get_snapshot_count(self, obj):
-        return obj.snapshots.count()
+        # Asumiendo que LayerSnapshot existe y tiene related_name='snapshots'
+        try:
+            from apps.monitoring.models import LayerSnapshot
+            return obj.snapshots.count()
+        except ImportError:
+            # Manejar el caso si la app monitoring no está disponible
+            return 0 # O lanzar una excepción si es crítico
 
 
 class SpatialLayerCreateSerializer(serializers.ModelSerializer):

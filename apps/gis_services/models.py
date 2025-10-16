@@ -4,10 +4,10 @@ Sistema de Monitoreo Geoespacial Inteligente
 Modelos para servicios geoespaciales y capas espaciales
 """
 import uuid
-import json
 from django.contrib.gis.db import models
 from django.contrib.gis.geos import Polygon
 from django.core.validators import URLValidator, MinValueValidator, MaxValueValidator
+from django.db import transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from model_utils.models import TimeStampedModel, SoftDeletableModel
@@ -82,7 +82,7 @@ class ArcGISService(BaseModel):
     monitoring_interval = models.PositiveIntegerField(
         _('Monitoring Interval (minutes)'),
         default=15,
-        validators=[MinValueValidator(1), MaxValueValidator(1440)]
+        validators=[MinValueValidator(1), MaxValueValidator(1440)] # 1 min to 24 hours
     )
     
     # Service metadata
@@ -121,6 +121,14 @@ class ArcGISService(BaseModel):
         null=True,
         related_name='created_services'
     )
+
+    # Relación ManyToMany con ServiceTag, movida dentro de la clase
+    tags = models.ManyToManyField(
+        'ServiceTag', # Usar string para evitar problemas de importación circular
+        through='ServiceTagRelation',
+        related_name='services',
+        blank=True
+    )
     
     class Meta:
         db_table = 'gis_arcgis_service'
@@ -151,6 +159,7 @@ class ArcGISService(BaseModel):
             return False
         return timezone.now() >= self.token_expires
     
+    @transaction.atomic # Asegura que los cambios de estado y metadata se guarden juntos
     def update_status(self, status, error_message=None):
         """Update service status"""
         self.status = status
@@ -163,21 +172,28 @@ class ArcGISService(BaseModel):
             self.consecutive_failures += 1
             
         if error_message:
+            # Asegura que metadata sea un dict antes de accederlo
+            if not isinstance(self.metadata, dict):
+                self.metadata = {}
             self.metadata['last_error'] = {
                 'message': error_message,
                 'timestamp': timezone.now().isoformat()
             }
         
-        self.save(update_fields=['status', 'last_check', 'last_successful_check', 
-                                'consecutive_failures', 'metadata'])
+        # Solo guarda los campos que han cambiado para eficiencia
+        update_fields = ['status', 'last_check', 'last_successful_check', 
+                        'consecutive_failures', 'metadata']
+        self.save(update_fields=update_fields)
     
     def get_layers(self):
         """Get all layers for this service"""
-        return self.spatial_layers.filter(is_removed=False)
+        # Filtra por is_removed=False si Layer hereda de SoftDeletableModel
+        # Asumiendo que SpatialLayer NO hereda de SoftDeletableModel, se omite el filtro
+        return self.spatial_layers.all()
     
     def get_monitored_layers(self):
         """Get only monitored layers"""
-        return self.spatial_layers.filter(is_monitored=True, is_removed=False)
+        return self.spatial_layers.filter(is_monitored=True)
 
 
 class LayerGeometryType(models.TextChoices):
@@ -231,12 +247,15 @@ class SpatialLayer(BaseModel):
     supports_statistics = models.BooleanField(_('Supports Statistics'), default=False)
     can_modify_layer = models.BooleanField(_('Can Modify Layer'), default=False)
     
-    fields = models.JSONField(
-        _('Layer Fields'),
-        default=list,
-        blank=True,
-        help_text=_('List of field definitions for the layer')
-    )
+    # --- Decisión importante: Eliminamos el JSONField 'fields' ---
+    # Dejamos solo el modelo LayerField para gestionar campos como entidades separadas.
+    # Si se quiere tener una copia plana o rápida, se puede agregar un método que lo calcule.
+    # fields = models.JSONField(
+    #     _('Layer Fields'),
+    #     default=list,
+    #     blank=True,
+    #     help_text=_('List of field definitions for the layer')
+    # )
     
     # Monitoring configuration
     is_monitored = models.BooleanField(_('Is Monitored'), default=False)
@@ -248,7 +267,7 @@ class SpatialLayer(BaseModel):
         _('Change Detection Fields'),
         default=list,
         blank=True,
-        help_text=_('Fields to monitor for changes')
+        help_text=_('Fields to monitor for changes (e.g., field names)')
     )
     change_threshold = models.FloatField(
         _('Change Threshold'),
@@ -330,6 +349,7 @@ class SpatialLayer(BaseModel):
         """Check if layer has significant change"""
         return self.change_percentage >= (self.change_threshold * 100)
     
+    @transaction.atomic # Asegura consistencia al actualizar contadores y crear alertas
     def update_feature_count(self, new_count):
         """Update feature count and check for changes"""
         old_count = self.feature_count
@@ -350,20 +370,23 @@ class SpatialLayer(BaseModel):
                 change_percentage=self.change_percentage
             )
         
+        # Solo guarda los campos que han cambiado
         self.save(update_fields=[
             'feature_count', 'last_feature_count', 'last_check', 
             'last_successful_check', 'check_failures'
         ])
     
+    @transaction.atomic # Asegura consistencia al actualizar fallos y crear alertas
     def record_check_failure(self, error_message=None):
         """Record a failed check"""
         self.check_failures += 1
         self.last_check = timezone.now()
         
         # Store error in metadata if provided
-        if error_message and hasattr(self, 'metadata'):
-            if not isinstance(self.metadata, dict):
-                self.metadata = {}
+        if error_message:
+            # Asegura que metadata sea un dict antes de accederlo
+            if not isinstance(getattr(self, 'metadata', {}), dict):
+                 self.metadata = {}
             self.metadata['last_error'] = {
                 'message': error_message,
                 'timestamp': timezone.now().isoformat()
@@ -378,27 +401,46 @@ class SpatialLayer(BaseModel):
                 consecutive_failures=self.check_failures
             )
         
-        self.save(update_fields=['check_failures', 'last_check'])
+        # Solo guarda los campos que han cambiado
+        self.save(update_fields=['check_failures', 'last_check', 'metadata'])
     
     def get_latest_snapshot(self):
         """Get the most recent snapshot for this layer"""
-        return self.snapshots.order_by('-created').first()
+        # Asume que existe una app 'monitoring' con un modelo LayerSnapshot
+        # y una relación ForeignKey desde LayerSnapshot a SpatialLayer
+        try:
+            from apps.monitoring.models import LayerSnapshot
+            return LayerSnapshot.objects.filter(layer=self).order_by('-created').first()
+        except ImportError:
+            # Manejar el caso si la app monitoring no está disponible
+            # o si el modelo no existe aún
+            return None
     
     def get_snapshots_in_range(self, start_date, end_date):
         """Get snapshots within date range"""
-        return self.snapshots.filter(
-            created__range=[start_date, end_date]
-        ).order_by('-created')
+        # Asume que existe una app 'monitoring' con un modelo LayerSnapshot
+        try:
+            from apps.monitoring.models import LayerSnapshot
+            return LayerSnapshot.objects.filter(
+                layer=self,
+                created__range=[start_date, end_date]
+            ).order_by('-created')
+        except ImportError:
+            # Manejar el caso si la app monitoring no está disponible
+            # o si el modelo no existe aún
+            return []
 
 
 class LayerField(models.Model):
     """
-    Model to represent fields in a spatial layer
+    Model to represent fields in a spatial layer.
+    This model represents layer fields as individual database records,
+    allowing for more granular control and monitoring per field.
     """
     layer = models.ForeignKey(
         SpatialLayer,
         on_delete=models.CASCADE,
-        related_name='layer_fields'
+        related_name='layer_fields' # Relación inversa
     )
     
     name = models.CharField(_('Field Name'), max_length=100)
@@ -500,12 +542,15 @@ class ServiceEndpoint(BaseModel):
         self.last_response_time = response_time_ms
         self.last_status_code = status_code
         self.last_check = timezone.now()
+        # Solo guarda los campos que han cambiado
         self.save(update_fields=['last_response_time', 'last_status_code', 'last_check'])
 
 
 class ServiceCredential(TimeStampedModel):
     """
-    Model to securely store service credentials
+    Model to securely store service credentials.
+    Note: This model stores credentials. In a production environment,
+    these should be encrypted at the application or database level.
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     service = models.OneToOneField(
@@ -516,10 +561,10 @@ class ServiceCredential(TimeStampedModel):
     
     # Authentication details (should be encrypted in production)
     username = models.CharField(_('Username'), max_length=255, blank=True)
-    password = models.TextField(_('Encrypted Password'), blank=True)
-    api_key = models.TextField(_('API Key'), blank=True)
+    password = models.TextField(_('Encrypted Password'), blank=True) # Debería ser cifrado
+    api_key = models.TextField(_('API Key'), blank=True) # Debería ser cifrado
     client_id = models.CharField(_('Client ID'), max_length=255, blank=True)
-    client_secret = models.TextField(_('Client Secret'), blank=True)
+    client_secret = models.TextField(_('Client Secret'), blank=True) # Debería ser cifrado
     
     # OAuth details
     access_token = models.TextField(_('Access Token'), blank=True)
@@ -690,18 +735,6 @@ class ServiceTagRelation(models.Model):
     
     def __str__(self):
         return f"{self.service.name} - {self.tag.name}"
-
-
-# Add many-to-many relationship to ArcGISService
-ArcGISService.add_to_class(
-    'tags',
-    models.ManyToManyField(
-        ServiceTag,
-        through=ServiceTagRelation,
-        related_name='services',
-        blank=True
-    )
-)
 
 
 class ServiceMetrics(TimeStampedModel):

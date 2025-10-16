@@ -13,6 +13,7 @@ from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 from django.core.cache import cache
 from django.conf import settings
+from apps.gis_services.models import ServiceConfiguration, ServiceMetrics # Importamos los modelos relevantes
 
 
 logger = logging.getLogger('apps.gis_services')
@@ -39,58 +40,101 @@ class ArcGISClient:
     Handles authentication, requests, retries, and error handling
     """
     
-    def __init__(self, service=None, base_url=None, timeout=30):
+    def __init__(self, service=None, base_url=None, timeout=None):
         """
         Initialize ArcGIS client
         
         Args:
             service: ArcGISService model instance
             base_url: Alternative base URL if service not provided
-            timeout: Request timeout in seconds
+            timeout: Request timeout in seconds (optional, defaults to service config)
         """
         self.service = service
         self.base_url = service.base_url if service else base_url
+        # Si no se proporciona timeout, usar el del servicio o el predeterminado
         self.timeout = timeout or (service.timeout_seconds if service else 30)
         self.token = None
         self.token_expiry = None
         
-        # Configure session with retry strategy
+        # Obtener o crear configuración del servicio si se proporciona un servicio
+        self.service_config = None
+        if self.service:
+            try:
+                self.service_config = self.service.configuration # Accede al OneToOneField
+            except ServiceConfiguration.DoesNotExist:
+                # Si no existe configuración, se crearía o se usarían valores predeterminados
+                logger.warning(f"No configuration found for service {self.service.name}. Using defaults.")
+                # Se podrían crear valores por defecto aquí o manejarlo en _get_service_config_value
+                pass
+        
+        # Configure session with retry strategy based on service config
         self.session = self._create_session()
         
-        # Get ArcGIS settings
+        # Get default ArcGIS settings
         self.config = getattr(settings, 'ARCGIS_SETTINGS', {})
-        self.max_retries = self.config.get('MAX_RETRIES', 3)
-        self.retry_delay = self.config.get('RETRY_DELAY', 1)
+        # Los valores predeterminados se obtienen de la configuración global
+        self.default_max_retries = self.config.get('MAX_RETRIES', 3)
+        self.default_retry_delay = self.config.get('RETRY_DELAY', 1)
+        self.default_backoff_factor = self.config.get('BACKOFF_FACTOR', 2.0)
+        self.default_cache_duration = self.config.get('CACHE_DURATION', 300)
+        self.default_user_agent = self.config.get('USER_AGENT', 'SMGI-Backend/1.0')
         
         logger.debug(f"Initialized ArcGIS client for: {self.base_url}")
     
+    def _get_service_config_value(self, key, default):
+        """
+        Helper to get a configuration value from ServiceConfiguration,
+        falling back to default if not set or if service_config doesn't exist.
+        """
+        if self.service_config:
+            # Asumiendo que la configuración está en campos específicos del modelo ServiceConfiguration
+            # Si están en un JSONField, se accedería como getattr(self.service_config, key, default)
+            # o self.service_config.some_dict.get(key, default)
+            # Aquí asumo campos directos para cada configuración.
+            # Si están en JSONField, cambiar a getattr(self.service_config, 'json_field').get(key, default)
+            return getattr(self.service_config, key, default)
+        return default
+
     def _create_session(self):
-        """Create requests session with retry strategy"""
+        """Create requests session with retry strategy based on service config"""
         session = requests.Session()
         
+        # Obtener valores de configuración del servicio o usar predeterminados
+        max_retries = self._get_service_config_value('max_retries', self.default_max_retries)
+        retry_delay = self._get_service_config_value('retry_delay', self.default_retry_delay)
+        backoff_factor = self._get_service_config_value('backoff_factor', self.default_backoff_factor)
+        # No se usa directamente en Retry, pero se podría usar para calcular el backoff total
+        # max_retry_delay = retry_delay * (backoff_factor ** (max_retries - 1)) # Ejemplo
+
         # Configure retry strategy
+        # status_forcelist y method_whitelist podrían también ser configurables por servicio
         retry_strategy = Retry(
-            total=3,
-            backoff_factor=1,
+            total=max_retries,
+            backoff_factor=retry_delay, # El backoff_factor en urllib3 multiplica el tiempo de espera
             status_forcelist=[429, 500, 502, 503, 504],
-            method_whitelist=["HEAD", "GET", "OPTIONS", "POST"]
+            # method_whitelist=["HEAD", "GET", "OPTIONS", "POST"] # Deprecado, ahora se usa allowed_methods
+            allowed_methods=["HEAD", "GET", "OPTIONS", "POST"]
         )
         
         adapter = HTTPAdapter(max_retries=retry_strategy)
         session.mount("http://", adapter)
         session.mount("https://", adapter)
         
-        # Set default headers
-        session.headers.update({
-            'User-Agent': self.config.get('USER_AGENT', 'SMGI-Backend/1.0'),
+        # Set default headers, potentially including service-specific ones
+        headers = {
+            'User-Agent': self._get_service_config_value('headers', {}).get('User-Agent', self.default_user_agent),
             'Accept': 'application/json',
             'Content-Type': 'application/x-www-form-urlencoded'
-        })
+        }
+        # Agregar otros headers del servicio si existen
+        service_headers = self._get_service_config_value('headers', {})
+        headers.update(service_headers)
+        session.headers.update(headers)
         
         return session
     
     def _get_cache_key(self, key_type, *args):
-        """Generate cache key for caching responses"""
+        """Generate cache key for caching responses, using service ID"""
         service_id = self.service.id if self.service else 'generic'
         return f"arcgis_{service_id}_{key_type}_{'_'.join(str(arg) for arg in args)}"
     
@@ -100,32 +144,35 @@ class ArcGISClient:
         Supports multiple authentication methods
         """
         if not self.service or not self.service.requires_authentication:
+            logger.debug("Service does not require authentication.")
             return None
         
-        # Check if we have valid cached token
+        # Check if we have valid cached token in the service model
         if self.service.token and not self.service.needs_token_refresh:
-            logger.debug("Using cached token")
-            return self.service.token
-        
+            logger.debug("Using cached token from service model.")
+            self.token = self.service.token
+            return self.token
+
         logger.info(f"Authenticating with ArcGIS service: {self.service.name}")
         
         try:
             # Check if service has credentials
-            if not hasattr(self.service, 'credentials'):
-                logger.warning(f"Service {self.service.name} requires auth but has no credentials")
+            # Usar getattr para manejar el caso donde la relación no exista
+            credentials = getattr(self.service, 'credentials', None)
+            if not credentials:
+                logger.warning(f"Service {self.service.name} requires auth but has no credentials.")
                 return None
             
-            credentials = self.service.credentials
-            
             # Determine authentication URL
-            auth_url = credentials.auth_url or urljoin(self.base_url, '/generateToken')
+            # Preferir el del servicio, sino usar el global
+            auth_url = credentials.auth_url or self.config.get('AUTH_URL', urljoin(self.base_url, '/generateToken'))
             
             # Prepare authentication payload
             auth_data = {
                 'username': credentials.username,
                 'password': credentials.password,
                 'f': 'json',
-                'expiration': 60,  # Token valid for 60 minutes
+                'expiration': 60,  # Token valid for 60 minutes - Could be configurable per service
                 'client': 'referer',
                 'referer': self.base_url
             }
@@ -153,15 +200,17 @@ class ArcGISClient:
             if not token:
                 raise ArcGISAuthenticationError("No token in authentication response")
             
-            # Update service credentials with new token
+            # Update service credentials with new token (assuming ServiceCredential model handles encryption)
             from django.utils import timezone
             credentials.access_token = token
             credentials.token_created_at = timezone.now()
+            # expires es el tiempo en segundos desde la creación
             credentials.expires_in = expires
             credentials.save(update_fields=['access_token', 'token_created_at', 'expires_in'])
             
             # Update service token
             self.service.token = token
+            # Calcular la hora de expiración real
             self.service.token_expires = timezone.now() + timezone.timedelta(seconds=expires)
             self.service.save(update_fields=['token', 'token_expires'])
             
@@ -178,9 +227,10 @@ class ArcGISClient:
             logger.error(f"Unexpected error during authentication: {e}")
             raise ArcGISAuthenticationError(f"Authentication failed: {e}")
     
-    def _make_request(self, method, url, params=None, data=None, use_cache=True, cache_timeout=300):
+    def _make_request(self, method, url, params=None, data=None, use_cache=True):
         """
         Make HTTP request to ArcGIS service with error handling and caching
+        Uses cache duration from service configuration.
         
         Args:
             method: HTTP method (GET, POST, etc.)
@@ -188,7 +238,6 @@ class ArcGISClient:
             params: Query parameters
             data: POST data
             use_cache: Whether to use caching
-            cache_timeout: Cache timeout in seconds
         
         Returns:
             Response JSON data
@@ -197,6 +246,10 @@ class ArcGISClient:
         params = params or {}
         params['f'] = 'json'  # Always request JSON format
         
+        # Add default query parameters from service config
+        default_params = self._get_service_config_value('query_parameters', {})
+        params.update(default_params)
+
         # Add authentication token if available
         if self.service and self.service.requires_authentication:
             token = self._authenticate()
@@ -207,15 +260,16 @@ class ArcGISClient:
         cache_key = self._get_cache_key('request', method, url, json.dumps(params, sort_keys=True))
         
         # Check cache for GET requests
+        cache_timeout = self._get_service_config_value('cache_duration', self.default_cache_duration)
         if method.upper() == 'GET' and use_cache:
             cached_data = cache.get(cache_key)
             if cached_data:
                 logger.debug(f"Returning cached response for: {url}")
                 return cached_data
         
-        # Make request with retries
-        max_attempts = self.max_retries + 1
+        # Make request with retries (configured in session)
         last_exception = None
+        max_attempts = self._get_service_config_value('max_retries', self.default_max_retries) + 1
         
         for attempt in range(max_attempts):
             try:
@@ -255,6 +309,13 @@ class ArcGISClient:
                         logger.warning("Token expired, re-authenticating...")
                         if self.service:
                             self.service.token = None
+                            # Opcional: también limpiar token en credentials
+                            if hasattr(self.service, 'credentials'):
+                                creds = self.service.credentials
+                                creds.access_token = ''
+                                creds.token_created_at = None
+                                creds.expires_in = None
+                                creds.save(update_fields=['access_token', 'token_created_at', 'expires_in'])
                             self.service.save(update_fields=['token'])
                         if attempt < max_attempts - 1:
                             continue  # Retry with new token
@@ -263,7 +324,6 @@ class ArcGISClient:
                 
                 # Record successful request metrics
                 if self.service:
-                    from apps.gis_services.models import ServiceMetrics
                     ServiceMetrics.record_request(
                         service=self.service,
                         endpoint=url,
@@ -287,7 +347,10 @@ class ArcGISClient:
                 logger.warning(f"Request timeout on attempt {attempt + 1}: {e}")
                 
                 if attempt < max_attempts - 1:
-                    sleep_time = self.retry_delay * (2 ** attempt)  # Exponential backoff
+                    # Usar el delay y backoff configurados
+                    delay = self._get_service_config_value('retry_delay', self.default_retry_delay)
+                    backoff = self._get_service_config_value('backoff_factor', self.default_backoff_factor)
+                    sleep_time = delay * (backoff ** attempt)  # Exponential backoff
                     logger.info(f"Retrying in {sleep_time} seconds...")
                     time.sleep(sleep_time)
                     
@@ -296,19 +359,20 @@ class ArcGISClient:
                 logger.error(f"Request failed on attempt {attempt + 1}: {e}")
                 
                 if attempt < max_attempts - 1:
-                    sleep_time = self.retry_delay * (2 ** attempt)
+                    delay = self._get_service_config_value('retry_delay', self.default_retry_delay)
+                    backoff = self._get_service_config_value('backoff_factor', self.default_backoff_factor)
+                    sleep_time = delay * (backoff ** attempt)
                     logger.info(f"Retrying in {sleep_time} seconds...")
                     time.sleep(sleep_time)
             
             except ArcGISClientError as e:
-                # Don't retry on ArcGIS-specific errors (except token issues)
+                # Don't retry on ArcGIS-specific errors (except token issues handled above)
                 last_exception = e
                 if 'token' not in str(e).lower():
                     break
         
         # Record failed request metrics
         if self.service:
-            from apps.gis_services.models import ServiceMetrics
             ServiceMetrics.record_request(
                 service=self.service,
                 endpoint=url,
@@ -408,7 +472,7 @@ class ArcGISClient:
             return_geometry: Whether to return geometry
             return_count_only: Only return feature count
             result_offset: Pagination offset
-            result_record_count: Number of records to return
+            result_record_count: Number of records to return (maxRecordCount from service config)
         
         Returns:
             Query results
@@ -423,8 +487,14 @@ class ArcGISClient:
             'resultOffset': result_offset,
         }
         
-        if result_record_count:
-            params['resultRecordCount'] = result_record_count
+        # Aplicar maxRecordCount del servicio si result_record_count no está definido o es mayor
+        service_max_count = getattr(self.service, 'max_record_count', 1000) if self.service else 1000
+        if result_record_count is None:
+            result_record_count = service_max_count
+        else:
+            result_record_count = min(result_record_count, service_max_count)
+        
+        params['resultRecordCount'] = result_record_count
         
         try:
             logger.info(f"Querying layer {layer_id} with where clause: {where}")
@@ -465,19 +535,24 @@ class ArcGISClient:
             logger.error(f"Error getting feature count for layer {layer_id}: {e}")
             return 0
     
-    def get_all_features(self, layer_id, where='1=1', out_fields='*', batch_size=1000):
+    def get_all_features(self, layer_id, where='1=1', out_fields='*', batch_size=None):
         """
-        Get all features from a layer, handling pagination
+        Get all features from a layer, handling pagination.
+        Respects the service's maxRecordCount.
         
         Args:
             layer_id: Layer ID
             where: SQL where clause
             out_fields: Fields to return
-            batch_size: Number of features per request
-        
+            batch_size: Number of features per request (maxes out at service's maxRecordCount)
+
         Yields:
             Feature dictionaries
         """
+        # Determinar el tamaño del lote, respetando el maxRecordCount del servicio
+        service_max_count = getattr(self.service, 'max_record_count', 1000) if self.service else 1000
+        effective_batch_size = min(batch_size or service_max_count, service_max_count)
+
         offset = 0
         total_fetched = 0
         
@@ -489,7 +564,7 @@ class ArcGISClient:
                     out_fields=out_fields,
                     return_geometry=True,
                     result_offset=offset,
-                    result_record_count=batch_size
+                    result_record_count=effective_batch_size
                 )
                 
                 features = result.get('features', [])
@@ -505,7 +580,7 @@ class ArcGISClient:
                 if not result.get('exceededTransferLimit', False):
                     break
                 
-                offset += batch_size
+                offset += effective_batch_size
                 logger.debug(f"Fetched {total_fetched} features so far...")
                 
             except Exception as e:
@@ -516,7 +591,8 @@ class ArcGISClient:
     
     def test_connection(self):
         """
-        Test connection to ArcGIS service
+        Test connection to ArcGIS service.
+        Includes authentication test if required.
         
         Returns:
             Tuple of (bool, str): (success, message)
@@ -526,6 +602,26 @@ class ArcGISClient:
             
             # Try to get service info
             info = self.get_service_info(use_cache=False)
+            
+            # Si el servicio requiere autenticación, intentar una operación que la use
+            if self.service and self.service.requires_authentication:
+                 # Obtener la primera capa (si existe) e intentar info
+                 layers = info.get('layers', [])
+                 if layers:
+                     first_layer_id = layers[0].get('id')
+                     if first_layer_id is not None:
+                         layer_info = self.get_layer_info(first_layer_id, use_cache=False)
+                         logger.info(f"Successfully authenticated and accessed layer {first_layer_id} info.")
+                         return (True, f"Successfully connected and authenticated. Service: {info.get('name', 'service')}, Layer: {layer_info.get('name', 'unknown')}")
+                 else:
+                     # Si no hay capas, intentar una consulta simple si es posible
+                     # o al menos confirmar que el token se obtuvo
+                     token = self._authenticate()
+                     if token:
+                         logger.info("Successfully authenticated.")
+                         return (True, f"Successfully connected and authenticated. Service: {info.get('name', 'service')}")
+                     else:
+                         return (False, f"Connected but failed to authenticate: No token obtained.")
             
             return (True, f"Successfully connected to {info.get('name', 'service')}")
             

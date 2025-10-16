@@ -8,12 +8,13 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
+from django.db import transaction # Importar transaction
 from django.db.models import Avg, Count, Q
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 
 from apps.gis_services.models import (
     ArcGISService, SpatialLayer, ServiceTag,
-    ServiceEndpoint, ServiceMetrics, ServiceStatus
+    ServiceEndpoint, ServiceMetrics, ServiceStatus, LayerField # Añadido LayerField
 )
 from apps.gis_services.serializers import (
     ArcGISServiceListSerializer, ArcGISServiceDetailSerializer,
@@ -123,47 +124,70 @@ class ArcGISServiceViewSet(viewsets.ModelViewSet):
             updated_layers = []
             errors = []
             
-            for layer_data in layers_data:
-                layer_id = layer_data.get('id')
-                
-                # Skip if specific layers requested and this isn't one of them
-                if specific_layer_ids and layer_id not in specific_layer_ids:
-                    continue
-                
-                try:
-                    # Get detailed layer info
-                    layer_info = client.get_layer_info(layer_id, use_cache=False)
+            # Usar transacción para asegurar consistencia
+            with transaction.atomic():
+                for layer_data in layers_data:
+                    layer_id = layer_data.get('id')
                     
-                    # Check if layer already exists
-                    layer, created = SpatialLayer.objects.update_or_create(
-                        service=service,
-                        layer_id=layer_id,
-                        defaults={
-                            'name': layer_info.get('name', f'Layer {layer_id}'),
-                            'description': layer_info.get('description', ''),
-                            'geometry_type': layer_info.get('geometryType', 'unknown'),
-                            'min_scale': layer_info.get('minScale'),
-                            'max_scale': layer_info.get('maxScale'),
-                            'spatial_reference': layer_info.get('extent', {}).get('spatialReference', {}),
-                            'supports_query': layer_info.get('supportsAdvancedQueries', False),
-                            'supports_statistics': layer_info.get('supportsStatistics', False),
-                            'fields': layer_info.get('fields', []),
-                            'is_monitored': auto_monitor,
-                            'monitoring_enabled': auto_monitor,
-                            'created_by': request.user if created else None
-                        }
-                    )
+                    # Skip if specific layers requested and this isn't one of them
+                    if specific_layer_ids and layer_id not in specific_layer_ids:
+                        continue
                     
-                    if created:
-                        synced_layers.append(layer.name)
-                    else:
-                        updated_layers.append(layer.name)
+                    try:
+                        # Get detailed layer info
+                        layer_info = client.get_layer_info(layer_id, use_cache=False)
                         
-                except Exception as e:
-                    errors.append({
-                        'layer_id': layer_id,
-                        'error': str(e)
-                    })
+                        # Check if layer already exists
+                        layer, created = SpatialLayer.objects.update_or_create(
+                            service=service,
+                            layer_id=layer_id,
+                            defaults={
+                                'name': layer_info.get('name', f'Layer {layer_id}'),
+                                'description': layer_info.get('description', ''),
+                                'geometry_type': layer_info.get('geometryType', 'unknown'),
+                                'min_scale': layer_info.get('minScale'),
+                                'max_scale': layer_info.get('maxScale'),
+                                'spatial_reference': layer_info.get('spatialReference', {}),
+                                'supports_query': layer_info.get('supportsAdvancedQueries', False),
+                                'supports_statistics': layer_info.get('supportsStatistics', False),
+                                # REMOVED: 'fields': layer_info.get('fields', []), # Ya no se usa
+                                'is_monitored': auto_monitor,
+                                'monitoring_enabled': auto_monitor,
+                                'created_by': request.user if created else None
+                            }
+                        )
+                        
+                        # --- NUEVO: Sincronizar campos (LayerField) ---
+                        layer_fields_data = layer_info.get('fields', [])
+                        if layer_fields_data:
+                            # Obtener o crear LayerField para cada campo del layer_info
+                            for field_data in layer_fields_data:
+                                LayerField.objects.update_or_create(
+                                    layer=layer,
+                                    name=field_data.get('name', ''),
+                                    defaults={
+                                        'alias': field_data.get('alias', ''),
+                                        'field_type': field_data.get('type', ''),
+                                        'length': field_data.get('length'),
+                                        'is_nullable': field_data.get('nullable', True),
+                                        'default_value': field_data.get('defaultValue', ''),
+                                        # Puedes añadir lógica para 'monitor_for_changes' aquí si proviene de la configuración
+                                        'monitor_for_changes': False, # Por defecto, o según regla
+                                        'change_threshold': None, # Por defecto
+                                    }
+                                )
+                        # --- FIN NUEVO ---
+
+                        if created:
+                            synced_layers.append(layer.name)
+                        else:
+                            updated_layers.append(layer.name)
+                            
+                    except Exception as e:
+                        errors.append({
+                            'layer_id': layer_id,
+                            'error': str(e)
+                        })
             
             return Response({
                 'success': True,
@@ -357,24 +381,41 @@ class SpatialLayerViewSet(viewsets.ModelViewSet):
         days = int(request.query_params.get('days', 30))
         since = timezone.now() - timezone.timedelta(days=days)
         
-        snapshots = layer.snapshots.filter(
-            created__gte=since
-        ).order_by('-created')[:50]
-        
-        snapshot_data = [{
-            'id': str(snap.id),
-            'feature_count': snap.feature_count,
-            'total_area': snap.total_area,
-            'is_valid': snap.is_valid,
-            'created': snap.created
-        } for snap in snapshots]
-        
-        return Response({
-            'layer_name': layer.name,
-            'period_days': days,
-            'snapshot_count': len(snapshot_data),
-            'snapshots': snapshot_data
-        })
+        # Asumiendo que LayerSnapshot existe y tiene related_name='snapshots'
+        # y campos 'total_area', 'is_valid'.
+        # Si no, este código fallará o necesitará ajustes.
+        try:
+            from apps.monitoring.models import LayerSnapshot
+            snapshots = layer.snapshots.filter(
+                created__gte=since
+            ).order_by('-created')[:50]
+            
+            snapshot_data = [{
+                'id': str(snap.id),
+                'feature_count': snap.feature_count,
+                # Asumiendo que LayerSnapshot tiene estos campos
+                'total_area': snap.total_area,
+                'is_valid': snap.is_valid,
+                'created': snap.created
+            } for snap in snapshots]
+            
+            return Response({
+                'layer_name': layer.name,
+                'period_days': days,
+                'snapshot_count': len(snapshot_data),
+                'snapshots': snapshot_data
+            })
+        except ImportError:
+            # Manejar el caso si la app monitoring no está disponible
+            # o si el modelo no existe aún
+            return Response({
+                'error': 'Monitoring app or LayerSnapshot model not available'
+            }, status=status.HTTP_501_NOT_IMPLEMENTED)
+        except AttributeError:
+            # Manejar el caso si LayerSnapshot no tiene los campos esperados
+            return Response({
+                'error': 'LayerSnapshot model does not have expected fields (total_area, is_valid)'
+            }, status=status.HTTP_501_NOT_IMPLEMENTED)
     
     @extend_schema(summary='Enable/Disable Layer Monitoring')
     @action(detail=True, methods=['post'])
