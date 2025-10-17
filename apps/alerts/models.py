@@ -7,6 +7,7 @@ import uuid
 from django.contrib.gis.db import models
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinValueValidator, MaxValueValidator
+from django.db import transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from model_utils.models import TimeStampedModel, SoftDeletableModel
@@ -42,6 +43,60 @@ class AlertCategory(models.TextChoices):
     SYSTEM_HEALTH = 'system_health', _('System Health')
     THRESHOLD_BREACH = 'threshold_breach', _('Threshold Breach')
     ANOMALY = 'anomaly', _('Anomaly Detection')
+
+
+class AlertQuerySet(models.QuerySet):
+    """
+    Custom QuerySet for Alert model to encapsulate complex queries.
+    """
+    def active(self):
+        return self.filter(status=AlertStatus.ACTIVE)
+
+    def by_severity(self, severity):
+        return self.filter(severity=severity)
+
+    def by_category(self, category):
+        return self.filter(category=category)
+
+    def unresolved(self):
+        return self.exclude(status__in=[AlertStatus.RESOLVED, AlertStatus.DISMISSED, AlertStatus.EXPIRED])
+
+    def assigned_to_user(self, user):
+        return self.filter(assigned_to=user)
+
+    def similar_to(self, alert_instance, minutes=60):
+        """
+        Get alerts similar to a given alert instance within a time window.
+        """
+        similar_time = timezone.now() - timezone.timedelta(minutes=minutes)
+        return self.filter(
+            category=alert_instance.category,
+            severity=alert_instance.severity,
+            service=alert_instance.service,
+            layer=alert_instance.layer,
+            status=AlertStatus.ACTIVE,
+            first_detected__gte=similar_time
+        ).exclude(id=alert_instance.id)
+
+
+class AlertManager(models.Manager):
+    """
+    Custom Manager for Alert model, using the custom QuerySet.
+    """
+    def get_queryset(self):
+        return AlertQuerySet(self.model, using=self._db)
+
+    def active(self):
+        return self.get_queryset().active()
+
+    def unresolved(self):
+        return self.get_queryset().unresolved()
+
+    def assigned_to_user(self, user):
+        return self.get_queryset().assigned_to_user(user)
+
+    def similar_to(self, alert_instance, minutes=60):
+        return self.get_queryset().similar_to(alert_instance, minutes)
 
 
 class Alert(BaseModel):
@@ -202,6 +257,9 @@ class Alert(BaseModel):
         verbose_name=_('Related Alerts')
     )
 
+    # Use the custom manager
+    objects = AlertManager()
+
     class Meta:
         db_table = 'alerts_alert'
         verbose_name = _('Alert')
@@ -261,6 +319,7 @@ class Alert(BaseModel):
     # -------------------
     # Business Logic
     # -------------------
+    @transaction.atomic # Asegura que el cambio de estado y la acción sean atómicos
     def acknowledge(self, user, notes=None):
         """Acknowledge this alert"""
         if self.status == AlertStatus.ACTIVE:
@@ -272,6 +331,7 @@ class Alert(BaseModel):
             return True
         return False
 
+    @transaction.atomic
     def resolve(self, user, notes=None):
         """Resolve this alert"""
         if self.status in [AlertStatus.ACTIVE, AlertStatus.ACKNOWLEDGED]:
@@ -283,6 +343,7 @@ class Alert(BaseModel):
             return True
         return False
 
+    @transaction.atomic
     def dismiss(self, user, notes=None):
         """Dismiss this alert"""
         if self.status != AlertStatus.DISMISSED:
@@ -292,6 +353,7 @@ class Alert(BaseModel):
             return True
         return False
 
+    @transaction.atomic
     def assign_to(self, user, assigned_by):
         """Assign alert to a user"""
         self.assigned_to = user
@@ -303,6 +365,7 @@ class Alert(BaseModel):
             notes=f'Assigned to {user.get_full_name()}'
         )
 
+    @transaction.atomic
     def add_comment(self, user, comment):
         """Add comment to alert"""
         AlertAction.objects.create(
@@ -313,19 +376,18 @@ class Alert(BaseModel):
         )
 
     def get_similar_active_alerts(self, minutes=60):
-        """Get similar active alerts within specified time window"""
-        similar_time = timezone.now() - timezone.timedelta(minutes=minutes)
-        return Alert.objects.filter(
-            category=self.category,
-            severity=self.severity,
-            service=self.service,
-            layer=self.layer,
-            status=AlertStatus.ACTIVE,
-            first_detected__gte=similar_time
-        ).exclude(id=self.id)
+        """
+        Get similar active alerts within specified time window.
+        Uses the custom QuerySet method.
+        """
+        # Aprovecha el QuerySet personalizado
+        return Alert.objects.similar_to(self, minutes)
 
     def should_suppress_notifications(self):
-        """Check if notifications should be suppressed due to similar alerts"""
+        """
+        Check if notifications should be suppressed due to similar alerts.
+        Uses the custom QuerySet method.
+        """
         if not self.suppress_similar:
             return False
         similar_alerts = self.get_similar_active_alerts(self.suppression_duration)

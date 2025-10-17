@@ -9,8 +9,9 @@ from apps.alerts import views
 # Create router for viewsets
 router = DefaultRouter()
 router.register(r'alerts', views.AlertViewSet, basename='alert')
-router.register(r'rules', views.AlertRuleViewSet, basename='alert-rule')
-router.register(r'channels', views.NotificationChannelViewSet, basename='notification-channel')
+# --- REMOVED: ViewSets not belonging to 'alerts' app ---
+# router.register(r'rules', views.AlertRuleViewSet, basename='alert-rule')
+# router.register(r'channels', views.NotificationChannelViewSet, basename='notification-channel')
 
 urlpatterns = [
     path('', include(router.urls)),
