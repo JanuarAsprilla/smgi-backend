@@ -1,0 +1,56 @@
+<!-- apps/notifications/templates/email/email_verification.html -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verifique su correo electrónico - SMGI</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; background-color: #f4f4f4; margin: 0; padding: 0; }
+        .container { max-width: 600px; margin: 20px auto; background: #fff; padding: 20px; border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        .header { background-color: #28a745; color: white; padding: 15px; text-align: center; border-top-left-radius: 5px; border-top-right-radius: 5px; }
+        .content { padding: 20px; }
+        .footer { padding: 15px; text-align: center; font-size: 0.8em; color: #777; border-top: 1px solid #eee; }
+        .btn { display: inline-block; padding: 10px 20px; background-color: #28a745; color: white !important; text-decoration: none; border-radius: 5px; margin-top: 15px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Bienvenido a SMGI</h1>
+            <p>Verificación de Correo Electrónico</p>
+        </div>
+        <div class="content">
+            <p>Hola {{ user.get_full_name|default:user.username }},</p>
+
+            <p>Gracias por registrarte en el <strong>Sistema de Monitoreo Geoespacial Inteligente</strong>.</p>
+
+            <p>Para completar tu registro y verificar tu dirección de correo electrónico, por favor haz clic en el siguiente botón:</p>
+
+            <p style="text-align: center;">
+                <a href="{{ verify_url }}" class="btn">Verificar mi Correo Electrónico</a>
+            </p>
+
+            <p><strong>¿Por qué es importante?</strong></p>
+            <ul>
+                <li>Confirmar tu identidad.</li>
+                <li>Recibir notificaciones importantes del sistema.</li>
+                <li>Acceder a todas las funcionalidades de SMGI.</li>
+            </ul>
+
+            <p><strong>¿El botón no funciona?</strong></p>
+            <p>Puedes copiar y pegar el siguiente enlace en tu navegador:</p>
+            <p><a href="{{ verify_url }}">{{ verify_url }}</a></p>
+
+            <p>Este enlace expirará en {{ expires_days }} días.</p>
+
+            <p>Si no creaste una cuenta en SMGI, simplemente ignora este correo.</p>
+        </div>
+        <div class="footer">
+            <p>Este es un mensaje automático del Sistema de Monitoreo Geoespacial Inteligente.</p>
+            <p>Por favor, no responda a este correo.</p>
+            <p>&copy; {% now "Y" %} IIAP - Instituto de Investigaciones de la Amazonía Peruana</p>
+        </div>
+    </div>
+</body>
+</html>

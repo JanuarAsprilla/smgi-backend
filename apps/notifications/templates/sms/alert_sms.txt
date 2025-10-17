@@ -1,0 +1,6 @@
+[SMGI - {{ alert.get_severity_display|upper }}] {{ alert.title|truncatechars:50 }}
+Servicio: {{ service_name|truncatechars:20 }}
+Capa: {{ layer_name|truncatechars:20 }}
+Cambio: {% if alert.feature_count_change_percent is not none %}{{ alert.feature_count_change_percent|floatformat:1 }}%{% else %}N/A{% endif %}
+Detectada: {{ alert.first_detected|date:"d/m H:i" }}
+Ver: {{ view_url|default:'http://smgi.iiap.edu.pe/alerts/' }}{% if alert.id %}{{ alert.id }}{% endif %}
