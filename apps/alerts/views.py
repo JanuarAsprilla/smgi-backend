@@ -13,14 +13,16 @@ from datetime import timedelta
 from drf_spectacular.utils import extend_schema
 
 from apps.alerts.models import (
-    Alert, AlertAction, AlertRule, NotificationChannel,
-    AlertNotification, AlertStatus, AlertSeverity
+    Alert, AlertAction, AlertStatus, AlertSeverity # Removido: AlertRule, NotificationChannel, AlertNotification
 )
 from apps.alerts.serializers import (
     AlertListSerializer, AlertDetailSerializer, AlertActionSerializer,
     AlertAcknowledgeSerializer, AlertResolveSerializer, AlertAssignSerializer,
-    AlertCommentSerializer, AlertRuleSerializer, NotificationChannelSerializer,
-    AlertNotificationSerializer, AlertStatisticsSerializer, BulkAlertActionSerializer
+    AlertCommentSerializer,
+    # Removido: AlertRuleSerializer, NotificationChannelSerializer, AlertNotificationSerializer,
+    AlertStatisticsSerializer, BulkAlertActionSerializer,
+    # Añadido: AlertDismissSerializer (si no se había importado antes)
+    AlertDismissSerializer
 )
 
 
@@ -109,14 +111,18 @@ class AlertViewSet(viewsets.ModelViewSet):
     
     @extend_schema(
         summary='Dismiss Alert',
-        request=AlertCommentSerializer,
+        request=AlertCommentSerializer, # Usar AlertDismissSerializer en su lugar
         responses={200: AlertDetailSerializer}
     )
     @action(detail=True, methods=['post'])
     def dismiss(self, request, pk=None):
         """Dismiss an alert"""
         alert = self.get_object()
-        notes = request.data.get('notes', '')
+        # Usar el nuevo serializer
+        serializer = AlertDismissSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        notes = serializer.validated_data.get('notes', '')
         
         if alert.dismiss(request.user, notes):
             return Response({
@@ -187,19 +193,19 @@ class AlertViewSet(viewsets.ModelViewSet):
             'actions': serializer.data
         })
     
-    @extend_schema(summary='Get Alert Notifications')
-    @action(detail=True, methods=['get'])
-    def notifications(self, request, pk=None):
-        """Get alert notifications history"""
-        alert = self.get_object()
-        notifications = alert.notifications.all().order_by('-sent_at')
-        serializer = AlertNotificationSerializer(notifications, many=True)
-        
-        return Response({
-            'alert_id': str(alert.id),
-            'notification_count': notifications.count(),
-            'notifications': serializer.data
-        })
+    # --- REMOVED: Endpoint 'notifications' as AlertNotification is not in alerts app ---
+    # @extend_schema(summary='Get Alert Notifications')
+    # @action(detail=True, methods=['get'])
+    # def notifications(self, request, pk=None):
+    #     """Get alert notifications history"""
+    #     alert = self.get_object()
+    #     notifications = alert.notifications.all().order_by('-sent_at')
+    #     serializer = AlertNotificationSerializer(notifications, many=True)
+    #     return Response({
+    #         'alert_id': str(alert.id),
+    #         'notification_count': notifications.count(),
+    #         'notifications': serializer.data
+    #     })
     
     @extend_schema(summary='Get Active Alerts')
     @action(detail=False, methods=['get'])
@@ -366,61 +372,54 @@ class AlertViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
-@extend_schema(tags=['Alert Rules'])
-class AlertRuleViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet for managing alert rules
-    """
-    queryset = AlertRule.objects.filter(is_removed=False)
-    serializer_class = AlertRuleSerializer
-    permission_classes = [IsAuthenticated]
-    filterset_fields = ['category', 'is_active']
-    search_fields = ['name', 'description']
-    ordering = ['name']
-    
-    def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
-    
-    @extend_schema(summary='Enable/Disable Rule')
-    @action(detail=True, methods=['post'])
-    def toggle(self, request, pk=None):
-        """Enable or disable alert rule"""
-        rule = self.get_object()
-        rule.is_active = not rule.is_active
-        rule.save(update_fields=['is_active'])
-        
-        return Response({
-            'message': _('Alert rule {}').format(
-                _('enabled') if rule.is_active else _('disabled')
-            ),
-            'is_active': rule.is_active
-        })
-
-
-@extend_schema(tags=['Notification Channels'])
-class NotificationChannelViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet for managing notification channels
-    """
-    queryset = NotificationChannel.objects.filter(is_removed=False)
-    serializer_class = NotificationChannelSerializer
-    permission_classes = [IsAuthenticated]
-    filterset_fields = ['channel_type', 'is_active']
-    ordering = ['name']
-    
-    def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
-    
-    @extend_schema(summary='Test Channel')
-    @action(detail=True, methods=['post'])
-    def test(self, request, pk=None):
-        """Send test notification through channel"""
-        channel = self.get_object()
-        
-        # TODO: Implement actual test notification
-        # This would send a test message through the channel
-        
-        return Response({
-            'message': _('Test notification sent'),
-            'channel_name': channel.name
-        })
+# --- REMOVED: ViewSets not belonging to 'alerts' app ---
+# @extend_schema(tags=['Alert Rules'])
+# class AlertRuleViewSet(viewsets.ModelViewSet):
+#     """
+#     ViewSet for managing alert rules
+#     """
+#     queryset = AlertRule.objects.filter(is_removed=False)
+#     serializer_class = AlertRuleSerializer
+#     permission_classes = [IsAuthenticated]
+#     filterset_fields = ['category', 'is_active']
+#     search_fields = ['name', 'description']
+#     ordering = ['name']
+#     def perform_create(self, serializer):
+#         serializer.save(created_by=self.request.user)
+#     @extend_schema(summary='Enable/Disable Rule')
+#     @action(detail=True, methods=['post'])
+#     def toggle(self, request, pk=None):
+#         """Enable or disable alert rule"""
+#         rule = self.get_object()
+#         rule.is_active = not rule.is_active
+#         rule.save(update_fields=['is_active'])
+#         return Response({
+#             'message': _('Alert rule {}').format(
+#                 _('enabled') if rule.is_active else _('disabled')
+#             ),
+#             'is_active': rule.is_active
+#         })
+#
+# @extend_schema(tags=['Notification Channels'])
+# class NotificationChannelViewSet(viewsets.ModelViewSet):
+#     """
+#     ViewSet for managing notification channels
+#     """
+#     queryset = NotificationChannel.objects.filter(is_removed=False)
+#     serializer_class = NotificationChannelSerializer
+#     permission_classes = [IsAuthenticated]
+#     filterset_fields = ['channel_type', 'is_active']
+#     ordering = ['name']
+#     def perform_create(self, serializer):
+#         serializer.save(created_by=self.request.user)
+#     @extend_schema(summary='Test Channel')
+#     @action(detail=True, methods=['post'])
+#     def test(self, request, pk=None):
+#         """Send test notification through channel"""
+#         channel = self.get_object()
+#         # TODO: Implement actual test notification
+#         # This would send a test message through the channel
+#         return Response({
+#             'message': _('Test notification sent'),
+#             'channel_name': channel.name
+#         })

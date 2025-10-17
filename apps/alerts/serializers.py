@@ -6,10 +6,11 @@ from rest_framework import serializers
 from rest_framework_gis.serializers import GeoFeatureModelSerializer
 from django.utils.translation import gettext_lazy as _
 
-from apps.alerts.models import (
-    Alert, AlertAction, AlertRule, NotificationChannel,
-    AlertNotification, AlertStatus
-)
+# Importar solo modelos de la app alerts
+from apps.alerts.models import Alert, AlertAction
+# Opcional: Importar modelos de otras apps si es estrictamente necesario
+# y si no crea un acoplamiento inadecuado.
+# from apps.notifications.models import AlertNotification # Solo si se maneja la relación aquí
 
 
 class AlertListSerializer(serializers.ModelSerializer):
@@ -36,7 +37,10 @@ class AlertListSerializer(serializers.ModelSerializer):
 
 
 class AlertDetailSerializer(GeoFeatureModelSerializer):
-    """Detailed serializer for alerts with geometry"""
+    """
+    Detailed serializer for alerts with geometry.
+    Removes fields related to notifications and rules that belong to 'notifications' app.
+    """
     
     service_name = serializers.CharField(source='service.name', read_only=True, allow_null=True)
     layer_name = serializers.CharField(source='layer.name', read_only=True, allow_null=True)
@@ -48,7 +52,8 @@ class AlertDetailSerializer(GeoFeatureModelSerializer):
     time_to_acknowledge = serializers.ReadOnlyField()
     time_to_resolve = serializers.ReadOnlyField()
     actions_count = serializers.SerializerMethodField()
-    notifications_count = serializers.SerializerMethodField()
+    # --- REMOVED: notifications_count as AlertNotification is not in alerts app ---
+    # notifications_count = serializers.SerializerMethodField()
     
     class Meta:
         model = Alert
@@ -65,7 +70,8 @@ class AlertDetailSerializer(GeoFeatureModelSerializer):
             'suppression_duration', 'notification_sent', 'notification_count',
             'last_notification_sent', 'external_ticket_id', 'age_hours',
             'is_expired', 'time_to_acknowledge', 'time_to_resolve',
-            'actions_count', 'notifications_count', 'created', 'modified'
+            'actions_count', # 'notifications_count', # Removido
+            'created', 'modified'
         ]
         read_only_fields = [
             'id', 'alert_id', 'first_detected', 'last_updated',
@@ -85,22 +91,29 @@ class AlertDetailSerializer(GeoFeatureModelSerializer):
     
     def get_actions_count(self, obj):
         return obj.actions.count()
-    
-    def get_notifications_count(self, obj):
-        return obj.notifications.count()
+
+    # --- REMOVED: get_notifications_count as AlertNotification is not in alerts app ---
+    # def get_notifications_count(self, obj):
+    #     # Asumiendo que existe una relación 'notifications' hacia AlertNotification
+    #     # que pertenece a la app 'notifications'
+    #     return obj.notifications.count() # Esto fallará si la relación no existe aquí
 
 
 class AlertActionSerializer(serializers.ModelSerializer):
     """Serializer for alert actions"""
     
     user_name = serializers.SerializerMethodField()
-    alert_title = serializers.CharField(source='alert.title', read_only=True)
+    # --- REMOVED: alert_title as it's redundant if alert is serialized separately ---
+    # alert_title = serializers.CharField(source='alert.title', read_only=True)
+    alert_title = serializers.CharField(source='alert.title', read_only=True) # Mantenido por conveniencia si es útil
+    # --- REMOVED: metadata as AlertAction model does not have it ---
+    # metadata = models.JSONField(...) # No existe en el modelo
     
     class Meta:
         model = AlertAction
         fields = [
             'id', 'alert', 'alert_title', 'action_type', 'user',
-            'user_name', 'notes', 'metadata', 'created'
+            'user_name', 'notes', 'created' # Removido 'metadata'
         ]
         read_only_fields = ['id', 'created']
     
@@ -120,6 +133,12 @@ class AlertResolveSerializer(serializers.Serializer):
     notes = serializers.CharField(required=False, allow_blank=True)
 
 
+class AlertDismissSerializer(serializers.Serializer):
+    """Serializer for dismissing alerts"""
+    
+    notes = serializers.CharField(required=False, allow_blank=True)
+
+
 class AlertAssignSerializer(serializers.Serializer):
     """Serializer for assigning alerts"""
     
@@ -131,98 +150,6 @@ class AlertCommentSerializer(serializers.Serializer):
     """Serializer for adding comments to alerts"""
     
     comment = serializers.CharField(required=True)
-
-
-class AlertRuleSerializer(serializers.ModelSerializer):
-    """Serializer for alert rules"""
-    
-    services = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
-    layers = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
-    service_ids = serializers.PrimaryKeyRelatedField(
-        many=True,
-        write_only=True,
-        queryset=None,
-        source='services',
-        required=False
-    )
-    layer_ids = serializers.PrimaryKeyRelatedField(
-        many=True,
-        write_only=True,
-        queryset=None,
-        source='layers',
-        required=False
-    )
-    created_by_name = serializers.SerializerMethodField()
-    alerts_in_last_hour = serializers.ReadOnlyField()
-    can_generate_alert = serializers.ReadOnlyField()
-    
-    class Meta:
-        model = AlertRule
-        fields = [
-            'id', 'name', 'description', 'services', 'service_ids',
-            'layers', 'layer_ids', 'category', 'severity',
-            'trigger_condition', 'warning_threshold', 'critical_threshold',
-            'is_active', 'auto_resolve', 'auto_resolve_hours',
-            'send_notifications', 'notification_template',
-            'max_alerts_per_hour', 'suppress_similar_minutes',
-            'escalate_after_hours', 'escalate_to', 'last_triggered',
-            'total_alerts_generated', 'alerts_in_last_hour',
-            'can_generate_alert', 'created_by', 'created_by_name',
-            'created', 'modified'
-        ]
-        read_only_fields = [
-            'id', 'last_triggered', 'total_alerts_generated',
-            'created', 'modified'
-        ]
-    
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        from apps.gis_services.models import ArcGISService, SpatialLayer
-        self.fields['service_ids'].child_relation.queryset = ArcGISService.objects.filter(is_removed=False)
-        self.fields['layer_ids'].child_relation.queryset = SpatialLayer.objects.filter(is_removed=False)
-    
-    def get_created_by_name(self, obj):
-        return obj.created_by.get_full_name() if obj.created_by else None
-
-
-class NotificationChannelSerializer(serializers.ModelSerializer):
-    """Serializer for notification channels"""
-    
-    success_rate = serializers.ReadOnlyField()
-    created_by_name = serializers.SerializerMethodField()
-    
-    class Meta:
-        model = NotificationChannel
-        fields = [
-            'id', 'name', 'description', 'channel_type', 'configuration',
-            'severity_filter', 'category_filter', 'rate_limit_minutes',
-            'max_notifications_per_hour', 'is_active', 'last_used',
-            'success_count', 'failure_count', 'success_rate',
-            'created_by', 'created_by_name', 'created', 'modified'
-        ]
-        read_only_fields = [
-            'id', 'last_used', 'success_count', 'failure_count',
-            'created', 'modified'
-        ]
-    
-    def get_created_by_name(self, obj):
-        return obj.created_by.get_full_name() if obj.created_by else None
-
-
-class AlertNotificationSerializer(serializers.ModelSerializer):
-    """Serializer for alert notifications"""
-    
-    alert_title = serializers.CharField(source='alert.title', read_only=True)
-    channel_name = serializers.CharField(source='channel.name', read_only=True)
-    
-    class Meta:
-        model = AlertNotification
-        fields = [
-            'id', 'alert', 'alert_title', 'channel', 'channel_name',
-            'recipient', 'subject', 'message', 'sent_at', 'delivered_at',
-            'read_at', 'status', 'error_message', 'external_id'
-        ]
-        read_only_fields = fields
 
 
 class AlertStatisticsSerializer(serializers.Serializer):
@@ -251,3 +178,4 @@ class BulkAlertActionSerializer(serializers.Serializer):
         required=True
     )
     notes = serializers.CharField(required=False, allow_blank=True)
+
