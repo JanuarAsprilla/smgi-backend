@@ -13,7 +13,9 @@ from model_utils.models import TimeStampedModel, SoftDeletableModel
 
 from apps.common.models import BaseModel
 from apps.authentication.models import User
-from apps.alerts.models import Alert
+# Importar Alert con un alias para evitar conflictos de nombre si es necesario en este contexto
+# from apps.alerts.models import Alert as AlertsAppAlert # Si se necesita desambiguar
+from apps.alerts.models import Alert # Asumimos que el modelo Alert es accesible
 
 
 class NotificationType(models.TextChoices):
@@ -94,12 +96,17 @@ class Notification(BaseModel):
     )
     
     # Relaciones
+    # --- CORRECCIÓN: Cambiar related_name para evitar conflicto con apps.alerts.models.Alert ---
+    # Original: related_name='in_app_notifications'
+    # Conflictivo porque apps.alerts.models.Alert también tiene related_name='in_app_notifications'
+    # Solución: Usar un nombre de related_name único para esta app.
     alert = models.ForeignKey(
         Alert,
         on_delete=models.CASCADE,
         null=True,
         blank=True,
-        related_name='in_app_notifications'
+        related_name='notifications_in_app', # Cambiado de 'in_app_notifications'
+        help_text=_('The alert this notification is about.')
     )
     
     # Caducidad
@@ -245,12 +252,17 @@ class EmailNotification(BaseModel):
     )
     
     # Related objects
+    # --- CORRECCIÓN: Cambiar related_name para evitar conflicto con apps.alerts.models.Alert ---
+    # Original: related_name='email_notifications'
+    # Conflictivo porque apps.alerts.models.Alert también tiene related_name='email_notifications'
+    # Solución: Usar un nombre de related_name único para esta app.
     alert = models.ForeignKey(
         Alert,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='email_notifications'
+        related_name='notifications_email', # Cambiado de 'email_notifications'
+        help_text=_('The alert this email notification is about.')
     )
     
     class Meta:
@@ -373,12 +385,17 @@ class WebhookNotification(BaseModel):
     max_retries = models.PositiveIntegerField(_('Max Retries'), default=3)
     
     # Related objects
+    # --- CORRECCIÓN: Cambiar related_name para evitar conflicto con apps.alerts.models.Alert ---
+    # Original: related_name='webhook_notifications'
+    # Conflictivo porque apps.alerts.models.Alert también tiene related_name='webhook_notifications'
+    # Solución: Usar un nombre de related_name único para esta app.
     alert = models.ForeignKey(
         Alert,
         on_delete=models.CASCADE,
         null=True,
         blank=True,
-        related_name='webhook_notifications'
+        related_name='notifications_webhook', # Cambiado de 'webhook_notifications'
+        help_text=_('The alert this webhook notification is about.')
     )
     
     class Meta:

@@ -1,0 +1,78 @@
+<!-- apps/notifications/templates/email/alert_notification.html -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ alert.get_severity_display }} Alert: {{ alert.title }}</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; background-color: #f4f4f4; margin: 0; padding: 0; }
+        .container { max-width: 600px; margin: 20px auto; background: #fff; padding: 20px; border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        .header { background-color: #007bff; color: white; padding: 15px; text-align: center; border-top-left-radius: 5px; border-top-right-radius: 5px; }
+        .content { padding: 20px; }
+        .footer { padding: 15px; text-align: center; font-size: 0.8em; color: #777; border-top: 1px solid #eee; }
+        .btn { display: inline-block; padding: 10px 20px; background-color: #007bff; color: white !important; text-decoration: none; border-radius: 5px; margin-top: 15px; }
+        .alert-info { border-left: 5px solid #17a2b8; padding: 10px; background-color: #d1ecf1; margin-bottom: 15px; }
+        .alert-warning { border-left: 5px solid #ffc107; padding: 10px; background-color: #fff3cd; margin-bottom: 15px; }
+        .alert-danger { border-left: 5px solid #dc3545; padding: 10px; background-color: #f8d7da; margin-bottom: 15px; }
+        .alert-success { border-left: 5px solid #28a745; padding: 10px; background-color: #d4edda; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Sistema de Monitoreo Geoespacial Inteligente</h1>
+            <p>Nueva Alerta Detectada</p>
+        </div>
+        <div class="content">
+            <h2>[{{ alert.get_severity_display|upper }}] {{ alert.title }}</h2>
+
+            {% if alert.severity == 'critical' %}
+                <div class="alert-danger">
+                    <strong>Alerta Crítica:</strong> Requiere atención inmediata.
+                </div>
+            {% elif alert.severity == 'high' %}
+                <div class="alert-warning">
+                    <strong>Alerta Alta:</strong> Requiere atención pronto.
+                </div>
+            {% elif alert.severity == 'medium' %}
+                <div class="alert-info">
+                    <strong>Alerta Media:</strong> Monitoree la situación.
+                </div>
+            {% elif alert.severity == 'low' %}
+                <div class="alert-success">
+                    <strong>Alerta Baja:</strong> Información para su conocimiento.
+                </div>
+            {% endif %}
+
+            <p><strong>Descripción:</strong></p>
+            <p>{{ alert.description|linebreaksbr }}</p>
+
+            <p><strong>Detalles:</strong></p>
+            <ul>
+                <li><strong>Categoría:</strong> {{ alert.get_category_display }}</li>
+                <li><strong>Servicio:</strong> {{ service_name }}</li>
+                <li><strong>Capa:</strong> {{ layer_name }}</li>
+                {% if alert.feature_count_change_percent is not none %}
+                    <li><strong>Cambio en Features:</strong> {{ alert.feature_count_change_percent|floatformat:2 }}%</li>
+                {% endif %}
+                {% if alert.affected_features_count %}
+                    <li><strong>Features Afectados:</strong> {{ alert.affected_features_count }}</li>
+                {% endif %}
+                <li><strong>Detectada el:</strong> {{ alert.first_detected|date:"d M Y, H:i" }}</li>
+            </ul>
+
+            {% if view_url %}
+            <p>
+                <a href="{{ view_url }}" class="btn">Ver Alerta en SMGI</a>
+            </p>
+            {% endif %}
+        </div>
+        <div class="footer">
+            <p>Este es un mensaje automático del Sistema de Monitoreo Geoespacial Inteligente.</p>
+            <p>Por favor, no responda a este correo.</p>
+            <p>&copy; {% now "Y" %} IIAP - Instituto de Investigaciones de la Amazonía Peruana</p>
+        </div>
+    </div>
+</body>
+</html>
