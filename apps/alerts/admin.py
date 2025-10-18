@@ -21,7 +21,10 @@ class AlertAdmin(OSMGeoAdmin):
     )
     readonly_fields = (
         'alert_id', 'first_detected', 'last_updated', 'acknowledged_at',
-        'resolved_at', 'notification_count', 'last_notification_sent'
+        'resolved_at', 'notification_count', 'last_notification_sent',
+        # --- MEJORA: Añadir propiedades calculadas como readonly_fields ---
+        'is_expired', 'should_auto_resolve'
+        # --- FIN MEJORA ---
     )
     raw_id_fields = ('service', 'layer', 'assigned_to', 'acknowledged_by', 'resolved_by')
     filter_horizontal = ('related_alerts',) # Si se desea un widget horizontal para M2M

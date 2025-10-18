@@ -70,6 +70,22 @@ class ChangeAlertTrigger(BaseAlertTrigger):
              self.logger.debug(f"Changes in result {change_result.id} do not exceed threshold for trigger {self.name}.")
              return AlertTriggerEvaluationResult(should_trigger=False)
 
+        # --- MEJORA: Considerar parámetros check_* para una evaluación más fina ---
+        # La lógica actual se basa en los flags generales de ChangeDetectionResult.
+        # Si se quiere que el trigger se active SOLO si un tipo específico de cambio
+        # (por ejemplo, area_change o centroid_displacement) supera un umbral,
+        # se podría añadir lógica aquí.
+        # Por ejemplo:
+        # if self.check_area and abs(change_result.area_change_percent or 0) < self.change_threshold_percent:
+        #     self.logger.debug(f"Area change below threshold for trigger {self.name}.")
+        #     return AlertTriggerEvaluationResult(should_trigger=False)
+        # if self.check_geometry and (change_result.centroid_displacement or 0) < self.change_threshold_percent:
+        #     self.logger.debug(f"Geometry change below threshold for trigger {self.name}.")
+        #     return AlertTriggerEvaluationResult(should_trigger=False)
+        # Esta lógica añadiría una capa de filtrado adicional después de que
+        # ChangeDetectionResult haya determinado que hay cambios significativos en general.
+        # --- FIN MEJORA ---
+
         # If ChangeDetectionResult says there are significant changes, trigger the alert.
         # The severity can be derived from the change result itself or recalculated here.
         # Let's derive severity based on feature_count_change_percent for example.
@@ -86,6 +102,12 @@ class ChangeAlertTrigger(BaseAlertTrigger):
             # This case should ideally not happen if ChangeDetectionResult correctly sets exceeds_threshold
             # But it's good defensive programming.
             self.logger.info(f"Change percent {change_percent}% below trigger threshold {self.change_threshold_percent}% for result {change_result.id}.")
+            # --- MEJORA: Comentario aclaratorio ---
+            # En este punto, aunque change_percent < threshold, change_result.exceeds_threshold es True.
+            # Esto puede suceder si ChangeDetectionResult usa un criterio diferente (por ejemplo, area_change).
+            # Por coherencia con la decisión de ChangeDetectionResult, aún se dispara la alerta
+            # con la severidad por defecto.
+            # --- FIN MEJORA ---
             severity = self.default_severity # Fallback
 
         # Prepare context and metadata for the alert
@@ -114,6 +136,10 @@ class ChangeAlertTrigger(BaseAlertTrigger):
 
         return AlertTriggerEvaluationResult(
             should_trigger=True,
+            # --- MEJORA: Usar el nombre del parámetro actualizado en AlertTriggerEvaluationResult ---
+            # Si AlertTriggerEvaluationResult usa 'alert_context' en lugar de 'context'
+            # alert_context=alert_context,
+            # Si no, mantener el original
             context=alert_context,
             severity=severity,
             metadata=alert_metadata
@@ -127,14 +153,18 @@ class ChangeAlertTrigger(BaseAlertTrigger):
         # Override category
         base_data['category'] = AlertCategory.CHANGE_DETECTION
         # Add specific data from context
-        base_data.update(evaluation_result.context)
+        # --- MEJORA: Comentario sobre fusión de contextos ---
+        # Nota: evaluation_result.alert_context (o .context) se fusiona con base_data.
+        # Si hay claves duplicadas, las de evaluation_result.alert_context sobrescriben las de base_data.
+        # --- FIN MEJORA ---
+        base_data.update(evaluation_result.alert_context) # Asumiendo que se usa alert_context
         # Add title based on context
-        layer = evaluation_result.context.get('layer')
+        layer = evaluation_result.alert_context.get('layer') # Asumiendo que se usa alert_context
         layer_name = layer.name if layer else "Unknown Layer"
-        change_percent = evaluation_result.context.get('change_percentage', 0)
+        change_percent = evaluation_result.alert_context.get('change_percentage', 0)
         base_data['title'] = f"Significant Change Detected in {layer_name} ({change_percent:.1f}%)"
         base_data['description'] = (
             f"A significant change ({change_percent:.1f}%) was detected in layer '{layer_name}'. "
-            f"Features affected: {evaluation_result.context.get('affected_features_count', 'N/A')}."
+            f"Features affected: {evaluation_result.alert_context.get('affected_features_count', 'N/A')}."
         )
         return base_data

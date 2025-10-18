@@ -9,6 +9,10 @@ from unittest.mock import patch, MagicMock
 from django.utils import timezone
 from datetime import timedelta
 from apps.alerts.models import Alert, AlertAction, AlertStatus, AlertSeverity, AlertCategory, AlertActionType
+# --- CORRECCIÓN: Asegurar que se importa la versión corregida de la tarea ---
+# from apps.alerts.tasks import check_and_auto_resolve_alerts, check_and_expire_alerts
+# Si el archivo tasks.py ha sido corregido, esta importación está bien.
+# Si no, se podría usar patch.object para probar la versión específica.
 from apps.alerts.tasks import check_and_auto_resolve_alerts, check_and_expire_alerts
 
 
@@ -25,6 +29,8 @@ def arcgis_service(user):
     from apps.gis_services.models import ArcGISService
     return ArcGISService.objects.create(
         name='Trigger Test Service',
+        # --- CORRECCIÓN: Eliminar espacio extra en la URL ---
+        # Original: base_url='https://triggertest.arcgis.com  ',
         base_url='https://triggertest.arcgis.com',
         service_type='featureserver',
         created_by=user
@@ -177,8 +183,14 @@ class TestExpirationTrigger:
         
         # Alert 1 should be expired
         assert alert1.status == AlertStatus.EXPIRED
-        action1 = AlertAction.objects.filter(alert=alert1, action_type=AlertActionType.RESOLVED, notes__contains="expired").first()
-        assert action1 is not None # Note: Uses RESOLVED type with 'expired' note as per current implementation
+        # --- CORRECCIÓN: Alinear con la versión revisada de tasks.py ---
+        # Original: action1 = AlertAction.objects.filter(alert=alert1, action_type=AlertActionType.RESOLVED, notes__contains="expired").first()
+        # Revisado: check_and_expire_alerts ahora crea una AlertAction con action_type=AlertActionType.EXPIRED
+        action1 = AlertAction.objects.filter(alert=alert1, action_type=AlertActionType.EXPIRED).first()
+        assert action1 is not None
+        # Opcional: Verificar la nota también
+        # assert "expired automatically" in action1.notes
+        # --- FIN CORRECCIÓN ---
         
         # Alert 2 status unchanged
         assert alert2.status == AlertStatus.ACTIVE

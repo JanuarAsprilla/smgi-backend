@@ -18,9 +18,21 @@ class AlertTriggerEvaluationResult:
     """
     Encapsulates the result of evaluating an AlertTrigger.
     """
-    def __init__(self, should_trigger: bool, context: Optional[Dict[str, Any]] = None, severity: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        should_trigger: bool,
+        # --- MEJORA: Renombrar 'context' para mayor claridad ---
+        # 'context' puede ser ambiguo. 'alert_context' sugiere claramente
+        # que son datos para poblar el modelo Alert.
+        # 'metadata' son datos adicionales sobre el resultado de la evaluación.
+        alert_context: Optional[Dict[str, Any]] = None,
+        severity: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ):
         self.should_trigger = should_trigger
-        self.context = context or {}
+        # --- MEJORA: Usar el nuevo nombre del parámetro ---
+        # self.context = context or {}
+        self.alert_context = alert_context or {}
         self.severity = severity
         self.metadata = metadata or {}
 
@@ -74,8 +86,12 @@ class BaseAlertTrigger(ABC):
             'metadata': evaluation_result.metadata,
             # Specific triggers should populate 'service', 'layer', 'affected_features_count', etc.
         }
-        # Merge context data into alert_data if needed, or let the caller handle it
-        # alert_data.update(evaluation_result.context)
+        # --- MEJORA: Fusionar alert_context del resultado ---
+        # Fusionar los datos del contexto del resultado para poblar campos del modelo Alert.
+        # Se asume que evaluation_result.alert_context contiene claves como 'service', 'layer', etc.
+        # Nota: Si hay claves en alert_context que ya existen en alert_data,
+        # las de alert_context sobrescribirán las de alert_data.
+        alert_data.update(evaluation_result.alert_context)
         return alert_data
 
     def __str__(self):

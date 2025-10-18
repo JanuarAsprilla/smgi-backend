@@ -410,6 +410,7 @@ class AlertActionType(models.TextChoices):
     DISMISSED = 'dismissed', _('Dismissed')
     COMMENTED = 'commented', _('Commented')
     ESCALATED = 'escalated', _('Escalated')
+    EXPIRED = 'expired', _('Expired')
 
 
 class AlertAction(BaseModel):

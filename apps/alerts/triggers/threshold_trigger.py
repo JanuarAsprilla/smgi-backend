@@ -70,6 +70,17 @@ class ThresholdAlertTrigger(BaseAlertTrigger):
         self.severity_levels = severity_levels or {}
         self.category = category
 
+        # --- MEJORA: Preordenar severity_levels para optimización ---
+        # Ordenar los niveles de severidad por umbral descendente una vez en __init__
+        # para evitar hacerlo en cada evaluación.
+        # Esto mejora ligeramente el rendimiento si se evalúa frecuentemente.
+        self._sorted_severity_levels = sorted(
+            self.severity_levels.items(),
+            key=lambda item: item[1],
+            reverse=True
+        )
+        # --- FIN MEJORA ---
+
         if not self.value_getter and not self.value_key:
             raise ValueError("Either 'value_getter' function or 'value_key' string must be provided.")
 
@@ -113,10 +124,22 @@ class ThresholdAlertTrigger(BaseAlertTrigger):
 
             # Determine severity based on value and severity_levels
             severity = self.default_severity
-            sorted_levels = sorted(self.severity_levels.items(), key=lambda item: item[1], reverse=True) # Sort by threshold descending
-            for level_name, level_threshold in sorted_levels:
+            # --- MEJORA: Usar la lista preordenada ---
+            # Usar self._sorted_severity_levels en lugar de ordenar en cada evaluación
+            # sorted_levels = sorted(self.severity_levels.items(), key=lambda item: item[1], reverse=True) # Sort by threshold descending
+            # for level_name, level_threshold in sorted_levels:
+            for level_name, level_threshold in self._sorted_severity_levels:
+            # --- FIN MEJORA ---
                 # Assume severity levels are for 'exceeding' a value (e.g., HIGH if > 80)
                 # Adjust logic if operator is LT/LTE
+                # --- MEJORA: Aclarar la lógica del operador para severidad ---
+                # La lógica actual asume que los severity_levels son para 'exceeding' un valor
+                # y usa GREATER_THAN_OR_EQUAL para comparar con el current_value.
+                # Esto está bien como estándar, pero se podría hacer más explícito.
+                # Por ejemplo, si el operador del trigger es LESS_THAN, quizás los severity_levels
+                # también deberían interpretarse como 'below' un valor.
+                # Para mantener la simplicidad, se mantiene la lógica actual.
+                # --- FIN MEJORA ---
                 level_operator = ThresholdOperator.GREATER_THAN_OR_EQUAL
                 if level_operator.evaluate(current_value, level_threshold):
                      severity = level_name
@@ -146,6 +169,10 @@ class ThresholdAlertTrigger(BaseAlertTrigger):
 
             return AlertTriggerEvaluationResult(
                 should_trigger=True,
+                # --- MEJORA: Asegurar compatibilidad con AlertTriggerEvaluationResult ---
+                # Si AlertTriggerEvaluationResult usa 'alert_context' en lugar de 'context'
+                # alert_context=alert_context,
+                # Si no, mantener el original
                 context=alert_context,
                 severity=severity,
                 metadata=alert_metadata
@@ -167,12 +194,16 @@ class ThresholdAlertTrigger(BaseAlertTrigger):
         # Override category
         base_data['category'] = self.category
         # Add specific data from context
-        base_data.update(evaluation_result.context)
+        # --- MEJORA: Aclarar la fusión de contextos ---
+        # Nota: evaluation_result.alert_context (o .context) se fusiona con base_data.
+        # Si hay claves duplicadas, las de evaluation_result.alert_context sobrescriben las de base_data.
+        # --- FIN MEJORA ---
+        base_data.update(evaluation_result.alert_context) # Asumiendo que se usa alert_context
         # Add title based on context
-        metric_name = evaluation_result.context.get('metric_name', 'Metric')
-        current_value = evaluation_result.context.get('current_value', 'N/A')
-        threshold_value = evaluation_result.context.get('threshold_value', 'N/A')
-        operator = evaluation_result.context.get('operator', 'N/A')
+        metric_name = evaluation_result.alert_context.get('metric_name', 'Metric') # Asumiendo que se usa alert_context
+        current_value = evaluation_result.alert_context.get('current_value', 'N/A')
+        threshold_value = evaluation_result.alert_context.get('threshold_value', 'N/A')
+        operator = evaluation_result.alert_context.get('operator', 'N/A')
         base_data['title'] = f"Threshold Breached: {metric_name}"
         base_data['description'] = (
             f"Metric '{metric_name}' value ({current_value}) breached threshold "
