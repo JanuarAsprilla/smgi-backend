@@ -1,3 +1,4 @@
+# apps/alerts/tasks.py
 """
 SMGI Backend - Alerts Tasks
 Sistema de Monitoreo Geoespacial Inteligente
@@ -148,15 +149,18 @@ def check_and_expire_alerts():
 
         expired_count = 0
         for alert in alerts_to_expire:
+            # --- MEJORA: Usar el nuevo tipo de acción ---
             # Directly update status to expired
+            old_status = alert.status
             alert.status = AlertStatus.EXPIRED
             alert.save(update_fields=['status'])
-            # Create an action log entry
+            # Create an action log entry with the new, more semantic type
             AlertAction.objects.create(
                 alert=alert,
-                action_type=AlertActionType.RESOLVED, # Or create a new type 'EXPIRED'?
-                notes="Alert expired automatically."
+                action_type=AlertActionType.EXPIRED, # --- CAMBIADO ---
+                notes=f"Alert expired automatically. Previous status was {old_status}."
             )
+            # --- FIN MEJORA ---
             expired_count += 1
             logger.info(f"Expired alert: {alert.alert_id}")
 
@@ -168,14 +172,14 @@ def check_and_expire_alerts():
         return {'error': str(e)}
 
 
-# --- Opcional: Tarea para evaluar reglas de alerta si se manejan aquí ---
-# Si las reglas se evalúan en 'monitoring', esta tarea probablemente no sea necesaria en 'alerts'.
-# Pero si se evalúan aquí basadas en otros criterios, podría existir.
+# --- REMOVIDO: Esqueleto de tarea que probablemente no se usará aquí ---
 # @shared_task
 # def evaluate_alert_rules():
 #     """
 #     Task to evaluate defined alert rules against current data.
 #     This might involve querying other models or services.
+#     Likely belongs in 'monitoring' app.
 #     """
 #     # Lógica para evaluar reglas y crear Alertas si se cumplen
 #     pass
+# --- FIN REMOVIDO ---

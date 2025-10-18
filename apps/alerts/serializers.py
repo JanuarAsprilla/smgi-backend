@@ -1,3 +1,4 @@
+# apps/alerts/serializers.py
 """
 SMGI Backend - Alerts Serializers
 Sistema de Monitoreo Geoespacial Inteligente
@@ -90,6 +91,17 @@ class AlertDetailSerializer(GeoFeatureModelSerializer):
         return obj.resolved_by.get_full_name() if obj.resolved_by else None
     
     def get_actions_count(self, obj):
+        # --- MEJORA: Comentario sobre optimización ---
+        # Nota: Esta llamada a obj.actions.count() genera una consulta SQL COUNT.
+        # Para evitar el problema de N+1 queries cuando se serializan muchas alertas,
+        # asegúrese de que la queryset en la vista use prefetch_related('actions')
+        # o anote el conteo en la consulta principal.
+        # Ejemplo en la vista:
+        # queryset = self.get_queryset().prefetch_related('actions')
+        # O usando anotaciones:
+        # from django.db.models import Count
+        # queryset = self.get_queryset().annotate(actions_count=Count('actions'))
+        # Y luego en este método: return getattr(obj, 'actions_count', obj.actions.count())
         return obj.actions.count()
 
     # --- REMOVED: get_notifications_count as AlertNotification is not in alerts app ---
@@ -103,11 +115,9 @@ class AlertActionSerializer(serializers.ModelSerializer):
     """Serializer for alert actions"""
     
     user_name = serializers.SerializerMethodField()
-    # --- REMOVED: alert_title as it's redundant if alert is serialized separately ---
-    # alert_title = serializers.CharField(source='alert.title', read_only=True)
-    alert_title = serializers.CharField(source='alert.title', read_only=True) # Mantenido por conveniencia si es útil
     # --- REMOVED: metadata as AlertAction model does not have it ---
     # metadata = models.JSONField(...) # No existe en el modelo
+    alert_title = serializers.CharField(source='alert.title', read_only=True) # Mantenido por conveniencia
     
     class Meta:
         model = AlertAction
@@ -163,7 +173,12 @@ class AlertStatisticsSerializer(serializers.Serializer):
     average_resolution_time_hours = serializers.FloatField()
     alerts_by_severity = serializers.DictField()
     alerts_by_category = serializers.DictField()
-    top_services_with_alerts = serializers.ListField()
+    # --- MEJORA: Precisión del tipo de lista ---
+    # top_services_with_alerts = serializers.ListField()
+    top_services_with_alerts = serializers.ListField(
+        child=serializers.DictField() # Cada elemento es un dict {'service': str, 'count': int}
+    )
+    # --- FIN MEJORA ---
 
 
 class BulkAlertActionSerializer(serializers.Serializer):
@@ -178,4 +193,3 @@ class BulkAlertActionSerializer(serializers.Serializer):
         required=True
     )
     notes = serializers.CharField(required=False, allow_blank=True)
-
