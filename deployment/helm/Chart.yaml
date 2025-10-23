@@ -1,0 +1,88 @@
+# deployment/helm/Chart.yaml
+---
+# SMGI Backend - Helm Chart Definition
+# Sistema de Monitoreo Geoespacial Inteligente
+# Chart para despliegue en Kubernetes con Helm
+
+# --- MEJORA: Versión de la API de Helm Chart ---
+apiVersion: v2
+
+# --- MEJORA: Nombre del Chart ---
+name: smgi-backend
+
+# --- MEJORA: Versión del Chart (SemVer) ---
+version: 0.1.0
+
+# --- MEJORA: Versión de la aplicación desplegada ---
+appVersion: "1.0.0"
+
+# --- MEJORA: Descripción del Chart ---
+description: >
+  Helm chart for deploying the SMGI Backend (Sistema de Monitoreo Geoespacial Inteligente)
+  on Kubernetes. Includes Django web app, Celery workers, Celery Beat scheduler,
+  PostgreSQL database, Redis cache/message broker, and Nginx reverse proxy.
+
+# --- MEJORA: Palabras clave para búsqueda ---
+keywords:
+  - smgi
+  - geospatial
+  - monitoring
+  - django
+  - celery
+  - postgresql
+  - postgis
+  - redis
+  - nginx
+  - kubernetes
+  - helm
+
+# --- MEJORA: URL del proyecto ---
+home: https://github.com/JanuarAsprilla/smgi-backend
+
+# --- MEJORA: URLs de repositorios de código fuente ---
+sources:
+  - https://github.com/JanuarAsprilla/smgi-backend
+
+# --- MEJORA: Mantenedores del Chart ---
+maintainers:
+  - name: Januar Asprilla
+    email: januar.asprilla@iiap.org.co
+    url: https://github.com/JanuarAsprilla
+  - name: IIAP - Equipo de Desarrollo
+    email: desarrollo@iiap.org.co
+    url: https://www.iiap.org.co
+
+# --- MEJORA: Ícono del proyecto (opcional) ---
+# icon: https://raw.githubusercontent.com/JanuarAsprilla/smgi-backend/main/docs/logo.png
+
+# --- MEJORA: Dependencias del Chart ---
+# Estas dependencias se gestionan en Chart.lock y se descargan con `helm dependency update`.
+# Se pueden añadir aquí si se usan subcharts oficiales o de repositorios públicos.
+# dependencies:
+#   - name: postgresql
+#     version: "12.x.x"
+#     repository: "https://charts.bitnami.com/bitnami"
+#     condition: postgresql.enabled
+#   - name: redis
+#     version: "17.x.x"
+#     repository: "https://charts.bitnami.com/bitnami"
+#     condition: redis.enabled
+#   - name: nginx-ingress
+#     version: "4.x.x"
+#     repository: "https://kubernetes.github.io/ingress-nginx"
+#     condition: ingress.enabled
+
+# --- MEJORA: Tipo de Chart ---
+# type: application # Por defecto es application
+
+# --- MEJORA: KubeVersion (opcional) ---
+# kubeVersion: ">=1.20.0" # Versión mínima de Kubernetes requerida
+
+# --- MEJORA: Annotations (opcional) ---
+# annotations:
+#   artifacthub.io/changes: |
+#     - kind: added
+#       description: Initial release
+#   artifacthub.io/links: |
+#     - name: documentation
+#       url: https://github.com/JanuarAsprilla/smgi-backend/blob/main/docs/deployment/kubernetes.md

@@ -1,0 +1,151 @@
+# deployment/kubernetes/deployment.yaml
+---
+# SMGI Backend - Kubernetes Deployment
+# Sistema de Monitoreo Geoespacial Inteligente
+# Deployment para el componente de notificaciones en Kubernetes
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smgi-notifications
+  namespace: smgi
+  labels:
+    app: smgi-backend
+    component: notifications
+
+spec:
+  replicas: 1 # Ajustar según necesidades
+  selector:
+    matchLabels:
+      app: smgi-backend
+      component: notifications
+  template:
+    metadata:
+      labels:
+        app: smgi-backend
+        component: notifications
+    spec:
+      containers:
+        - name: notifications
+          image: smgi/backend:latest # Asegurarse de que esta imagen exista o esté construida
+          ports:
+            - containerPort: 8000 # Puerto interno del contenedor Django
+          envFrom:
+            - configMapRef:
+                name: smgi-config # Referencia al ConfigMap creado anteriormente
+            # - secretRef:
+            #     name: smgi-secrets # Referencia a un Secret con credenciales sensibles (a crear)
+          env:
+            # Variables de entorno adicionales o sobrescritas
+            - name: DJANGO_SETTINGS_MODULE
+              value: "config.settings.development" # O "config.settings.local" si se usa
+            - name: DEBUG
+              value: "True" # Desactivar en producción
+            # --- MEJORA: Credenciales sensibles desde Secret ---
+            # Las siguientes variables NO deben estar aquí en texto plano.
+            # Deben cargarse desde un Secret.
+            # - name: SECRET_KEY
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: smgi-secrets
+            #       key: secret-key
+            # - name: DB_PASSWORD
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: smgi-secrets
+            #       key: db-password
+            # - name: REDIS_PASSWORD
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: smgi-secrets
+            #       key: redis-password
+            # --- FIN MEJORA ---
+          volumeMounts:
+            - name: logs-volume
+              mountPath: /app/logs # Montar volumen para logs
+            - name: static-volume
+              mountPath: /app/staticfiles # Montar volumen para archivos estáticos
+            - name: media-volume
+              mountPath: /app/media # Montar volumen para archivos de medios
+          livenessProbe:
+            httpGet:
+              path: /health/ # Endpoint de salud de Django
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health/ # Endpoint de salud de Django
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+      volumes:
+        - name: logs-volume
+          emptyDir: {} # En producción, usar PersistentVolumeClaim
+        - name: static-volume
+          emptyDir: {} # En producción, usar PersistentVolumeClaim
+        - name: media-volume
+          emptyDir: {} # En producción, usar PersistentVolumeClaim
+      restartPolicy: Always # Por defecto para Deployments
+
+---
+# SMGI Backend - Kubernetes Service
+# Sistema de Monitoreo Geoespacial Inteligente
+# Service para exponer el componente de notificaciones
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: smgi-notifications-service
+  namespace: smgi
+  labels:
+    app: smgi-backend
+    component: notifications
+spec:
+  selector:
+    app: smgi-backend
+    component: notifications
+  ports:
+    - protocol: TCP
+      port: 80 # Puerto del servicio
+      targetPort: 8000 # Puerto del contenedor
+  type: ClusterIP # En producción, puede ser LoadBalancer o NodePort
+
+---
+# SMGI Backend - Kubernetes Ingress (Opcional)
+# Sistema de Monitoreo Geoespacial Inteligente
+# Ingress para enrutar tráfico externo al servicio de notificaciones
+
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: smgi-notifications-ingress
+#   namespace: smgi
+#   labels:
+#     app: smgi-backend
+#     component: notifications
+#   annotations:
+#     nginx.ingress.kubernetes.io/rewrite-target: /
+# spec:
+#   rules:
+#     - host: notifications.smgi.iiap.edu.pe # Dominio personalizado
+#       http:
+#         paths:
+#           - path: /
+#             pathType: Prefix
+#             backend:
+#               service:
+#                 name: smgi-notifications-service
+#                 port:
+#                   number: 80
+#   # tls: # Configuración TLS/SSL (requiere certificado)
+#   #   - hosts:
+#   #       - notifications.smgi.iiap.edu.pe
+#   #     secretName: smgi-notifications-tls-secret

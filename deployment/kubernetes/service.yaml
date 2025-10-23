@@ -1,0 +1,262 @@
+# deployment/kubernetes/service.yaml
+---
+# SMGI Backend - Kubernetes Service
+# Sistema de Monitoreo Geoespacial Inteligente
+# Service para exponer el componente de notificaciones en Kubernetes
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: smgi-notifications-service
+  namespace: smgi
+  labels:
+    app: smgi-backend
+    component: notifications
+  annotations:
+    # --- MEJORA: Anotaciones útiles ---
+    # service.beta.kubernetes.io/aws-load-balancer-type: "nlb" # Para AWS
+    # service.beta.kubernetes.io/azure-load-balancer-internal: "true" # Para Azure interno
+    # cloud.google.com/load-balancer-type: "Internal" # Para GCP interno
+    # description: "Service for SMGI Notifications component"
+    description: "Service for SMGI Notifications component"
+spec:
+  # --- MEJORA: Selector para identificar pods ---
+  # Debe coincidir con los labels del template del Deployment
+  selector:
+    app: smgi-backend
+    component: notifications
+  
+  # --- MEJORA: Puertos expuestos por el servicio ---
+  ports:
+    - name: http # Nombre del puerto
+      protocol: TCP # Protocolo (TCP por defecto)
+      port: 80 # Puerto del servicio (interno o externo según tipo)
+      targetPort: 8000 # Puerto del contenedor al que se redirige el tráfico
+  
+  # --- MEJORA: Tipo de servicio ---
+  # ClusterIP: Solo accesible dentro del clúster (por defecto)
+  # NodePort: Expone el servicio en un puerto estático en cada nodo del clúster
+  # LoadBalancer: Provisiona un balanceador de carga del proveedor de la nube
+  # ExternalName: Mapea el servicio a un nombre DNS externo
+  type: ClusterIP # Por defecto, solo accesible dentro del clúster
+
+---
+# --- MEJORA: Service para exposición externa (LoadBalancer) ---
+# Este servicio expone el componente de notificaciones al exterior usando un LoadBalancer
+# del proveedor de la nube (AWS, Azure, GCP, etc.).
+# Útil para entornos de producción o staging donde se necesita acceso externo.
+
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: smgi-notifications-external-service
+#   namespace: smgi
+#   labels:
+#     app: smgi-backend
+#     component: notifications
+#     service-type: external
+#   annotations:
+#     # service.beta.kubernetes.io/aws-load-balancer-type: "nlb" # Para AWS
+#     # service.beta.kubernetes.io/azure-load-balancer-internal: "false" # Para Azure público
+#     # cloud.google.com/load-balancer-type: "External" # Para GCP público
+#     description: "External service for SMGI Notifications component"
+# spec:
+#   selector:
+#     app: smgi-backend
+#     component: notifications
+#   ports:
+#     - name: http
+#       protocol: TCP
+#       port: 80
+#       targetPort: 8000
+#   type: LoadBalancer # Expone el servicio al exterior
+
+---
+# --- MEJORA: Service para exposición interna (NodePort) ---
+# Este servicio expone el componente de notificaciones en un puerto estático
+# en cada nodo del clúster. Útil para entornos de desarrollo o testing locales.
+
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: smgi-notifications-nodeport-service
+#   namespace: smgi
+#   labels:
+#     app: smgi-backend
+#     component: notifications
+#     service-type: nodeport
+#   annotations:
+#     description: "NodePort service for SMGI Notifications component"
+# spec:
+#   selector:
+#     app: smgi-backend
+#     component: notifications
+#   ports:
+#     - name: http
+#       protocol: TCP
+#       port: 80
+#       targetPort: 8000
+#       nodePort: 30080 # Puerto estático en cada nodo (rango 30000-32767)
+#   type: NodePort # Expone el servicio en un puerto estático en cada nodo
+
+---
+# --- MEJORA: Service Headless para descubrimiento de pods ---
+# Este servicio headless permite el descubrimiento directo de pods individuales
+# sin un IP de cluster virtual. Útil para StatefulSets o cuando se necesita
+# comunicarse directamente con un pod específico.
+
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: smgi-notifications-headless-service
+#   namespace: smgi
+#   labels:
+#     app: smgi-backend
+#     component: notifications
+#     service-type: headless
+#   annotations:
+#     description: "Headless service for SMGI Notifications component"
+# spec:
+#   selector:
+#     app: smgi-backend
+#     component: notifications
+#   ports:
+#     - name: http
+#       protocol: TCP
+#       port: 80
+#       targetPort: 8000
+#   clusterIP: None # Hace que el servicio sea headless
+
+---
+# --- MEJORA: Service para Celery Worker ---
+# Este servicio expone los workers de Celery para comunicación interna
+# (ej: entre workers, con el scheduler, con la app web).
+
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: smgi-celery-worker-service
+#   namespace: smgi
+#   labels:
+#     app: smgi-backend
+#     component: celery-worker
+#   annotations:
+#     description: "Service for SMGI Celery Workers"
+# spec:
+#   selector:
+#     app: smgi-backend
+#     component: celery-worker
+#   ports:
+#     - name: amqp
+#       protocol: TCP
+#       port: 5672
+#       targetPort: 5672
+#   type: ClusterIP
+
+---
+# --- MEJORA: Service para Celery Beat ---
+# Este servicio expone el scheduler de Celery para comunicación interna
+# (ej: con workers, con la app web).
+
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: smgi-celery-beat-service
+#   namespace: smgi
+#   labels:
+#     app: smgi-backend
+#     component: celery-beat
+#   annotations:
+#     description: "Service for SMGI Celery Beat scheduler"
+# spec:
+#   selector:
+#     app: smgi-backend
+#     component: celery-beat
+#   ports:
+#     - name: http
+#       protocol: TCP
+#       port: 80
+#       targetPort: 8000
+#   type: ClusterIP
+
+---
+# --- MEJORA: Service para PostgreSQL/PostGIS ---
+# Este servicio expone la base de datos PostgreSQL/PostGIS para comunicación interna
+# (ej: con la app web, workers de Celery).
+
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: smgi-postgresql-service
+#   namespace: smgi
+#   labels:
+#     app: smgi-backend
+#     component: postgresql
+#   annotations:
+#     description: "Service for SMGI PostgreSQL/PostGIS database"
+# spec:
+#   selector:
+#     app: smgi-backend
+#     component: postgresql
+#   ports:
+#     - name: postgresql
+#       protocol: TCP
+#       port: 5432
+#       targetPort: 5432
+#   type: ClusterIP
+
+---
+# --- MEJORA: Service para Redis ---
+# Este servicio expone Redis para comunicación interna
+# (ej: con la app web, workers de Celery, scheduler de Celery).
+
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: smgi-redis-service
+#   namespace: smgi
+#   labels:
+#     app: smgi-backend
+#     component: redis
+#   annotations:
+#     description: "Service for SMGI Redis cache/message broker"
+# spec:
+#   selector:
+#     app: smgi-backend
+#     component: redis
+#   ports:
+#     - name: redis
+#       protocol: TCP
+#       port: 6379
+#       targetPort: 6379
+#   type: ClusterIP
+
+---
+# --- MEJORA: Service para Nginx (proxy inverso) ---
+# Este servicio expone Nginx para comunicación externa
+# (ej: con clientes web, APIs externas).
+
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: smgi-nginx-service
+#   namespace: smgi
+#   labels:
+#     app: smgi-backend
+#     component: nginx
+#   annotations:
+#     description: "Service for SMGI Nginx reverse proxy"
+# spec:
+#   selector:
+#     app: smgi-backend
+#     component: nginx
+#   ports:
+#     - name: http
+#       protocol: TCP
+#       port: 80
+#       targetPort: 80
+#     - name: https
+#       protocol: TCP
+#       port: 443
+#       targetPort: 443
+#   type: LoadBalancer # O NodePort para desarrollo local
