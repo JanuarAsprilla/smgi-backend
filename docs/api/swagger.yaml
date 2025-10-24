@@ -1,0 +1,4116 @@
+# docs/api/swagger.yaml
+---
+# SMGI Backend - OpenAPI Specification
+# Sistema de Monitoreo Geoespacial Inteligente - IIAP
+# Especificación OpenAPI 3.0.3 para la API del SMGI Backend
+
+openapi: 3.0.3
+info:
+  title: SMGI Backend API
+  description: |
+    API para el Sistema de Monitoreo Geoespacial Inteligente (SMGI) del IIAP.
+    
+    Esta API permite:
+    - Autenticación y gestión de usuarios
+    - Gestión de servicios y capas GIS
+    - Monitoreo automático de capas espaciales
+    - Detección de cambios en datos geoespaciales
+    - Generación y envío de alertas
+    - Gestión de notificaciones (in-app, email, webhook)
+    - Generación de reportes personalizados
+    - Auditoría y registro de actividades
+    
+    Todos los endpoints requieren autenticación a menos que se indique lo contrario.
+  version: 1.0.0
+  contact:
+    name: IIAP - Equipo de Desarrollo
+    email: desarrollo@iiap.org.co
+    url: https://www.iiap.org.co
+  license:
+    name: Propietario - IIAP
+    url: https://www.iiap.org.co
+
+servers:
+  - url: http://localhost:8000
+    description: Servidor de desarrollo local
+  - url: https://staging.smgi.iiap.edu.pe
+    description: Servidor de staging
+  - url: https://smgi.iiap.edu.pe
+    description: Servidor de producción
+
+tags:
+  - name: Authentication
+    description: Endpoints para autenticación y gestión de usuarios
+  - name: GIS Services
+    description: Endpoints para gestión de servicios y capas GIS
+  - name: Monitoring
+    description: Endpoints para monitoreo automático de capas
+  - name: Alerts
+    description: Endpoints para gestión de alertas
+  - name: Notifications
+    description: Endpoints para gestión de notificaciones
+  - name: Reports
+    description: Endpoints para generación y gestión de reportes
+  - name: System
+    description: Endpoints para salud del sistema y estadísticas
+
+paths:
+  # --- Authentication ---
+  /api/auth/register/:
+    post:
+      tags:
+        - Authentication
+      summary: Registrar un nuevo usuario
+      description: Crea una nueva cuenta de usuario en el sistema.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRegistration'
+      responses:
+        '201':
+          description: Usuario registrado exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserRegistrationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/auth/login/:
+    post:
+      tags:
+        - Authentication
+      summary: Iniciar sesión
+      description: Autentica a un usuario y devuelve tokens JWT.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserLogin'
+      responses:
+        '200':
+          description: Autenticación exitosa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JWTToken'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/auth/logout/:
+    post:
+      tags:
+        - Authentication
+      summary: Cerrar sesión
+      description: Invalida el token de refresco del usuario.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshToken'
+      responses:
+        '200':
+          description: Cierre de sesión exitoso
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/auth/profile/:
+    get:
+      tags:
+        - Authentication
+      summary: Obtener perfil de usuario
+      description: Devuelve la información del perfil del usuario autenticado.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Perfil de usuario
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    put:
+      tags:
+        - Authentication
+      summary: Actualizar perfil de usuario
+      description: Actualiza la información del perfil del usuario autenticado.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserProfileUpdate'
+      responses:
+        '200':
+          description: Perfil actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/auth/profile/change-password/:
+    post:
+      tags:
+        - Authentication
+      summary: Cambiar contraseña
+      description: Permite al usuario cambiar su contraseña actual.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePassword'
+      responses:
+        '200':
+          description: Contraseña cambiada exitosamente
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # --- GIS Services ---
+  /api/gis/services/:
+    get:
+      tags:
+        - GIS Services
+      summary: Listar servicios GIS
+      description: Devuelve una lista de servicios GIS registrados.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/ordering'
+      responses:
+        '200':
+          description: Lista de servicios GIS
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  next:
+                    type: string
+                    nullable: true
+                  previous:
+                    type: string
+                    nullable: true
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ArcGISService'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - GIS Services
+      summary: Crear servicio GIS
+      description: Registra un nuevo servicio GIS.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArcGISServiceCreate'
+      responses:
+        '201':
+          description: Servicio GIS creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArcGISService'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/gis/services/{id}/:
+    get:
+      tags:
+        - GIS Services
+      summary: Obtener servicio GIS
+      description: Devuelve los detalles de un servicio GIS específico.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Detalles del servicio GIS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArcGISService'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags:
+        - GIS Services
+      summary: Actualizar servicio GIS
+      description: Actualiza un servicio GIS específico.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArcGISServiceUpdate'
+      responses:
+        '200':
+          description: Servicio GIS actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArcGISService'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - GIS Services
+      summary: Eliminar servicio GIS
+      description: Elimina (soft delete) un servicio GIS específico.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '204':
+          description: Servicio GIS eliminado
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/gis/services/{id}/test-connection/:
+    post:
+      tags:
+        - GIS Services
+      summary: Probar conexión al servicio GIS
+      description: Verifica la conectividad con un servicio GIS específico.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TestConnection'
+      responses:
+        '200':
+          description: Resultado de la prueba de conexión
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TestConnectionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/gis/services/{id}/sync-layers/:
+    post:
+      tags:
+        - GIS Services
+      summary: Sincronizar capas del servicio GIS
+      description: Sincroniza las capas disponibles en un servicio GIS.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncLayers'
+      responses:
+        '200':
+          description: Resultado de la sincronización
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncLayersResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/gis/services/{id}/health/:
+    get:
+      tags:
+        - GIS Services
+      summary: Obtener salud del servicio GIS
+      description: Devuelve el estado de salud actual de un servicio GIS.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Estado de salud del servicio GIS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceHealth'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/gis/services/{id}/metrics/:
+    get:
+      tags:
+        - GIS Services
+      summary: Obtener métricas del servicio GIS
+      description: Devuelve métricas de rendimiento del servicio GIS.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Métricas de rendimiento del servicio GIS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceMetrics'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/gis/services/statistics/:
+    get:
+      tags:
+        - GIS Services
+      summary: Obtener estadísticas de servicios GIS
+      description: Devuelve estadísticas agregadas de todos los servicios GIS.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Estadísticas de servicios GIS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceStatistics'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # --- Monitoring ---
+  /api/monitoring/jobs/:
+    get:
+      tags:
+        - Monitoring
+      summary: Listar trabajos de monitoreo
+      description: Devuelve una lista de trabajos de monitoreo.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/ordering'
+      responses:
+        '200':
+          description: Lista de trabajos de monitoreo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  next:
+                    type: string
+                    nullable: true
+                  previous:
+                    type: string
+                    nullable: true
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MonitoringJob'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - Monitoring
+      summary: Crear trabajo de monitoreo
+      description: Crea un nuevo trabajo de monitoreo.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MonitoringJobCreate'
+      responses:
+        '201':
+          description: Trabajo de monitoreo creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MonitoringJob'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/monitoring/jobs/{id}/:
+    get:
+      tags:
+        - Monitoring
+      summary: Obtener trabajo de monitoreo
+      description: Devuelve los detalles de un trabajo de monitoreo específico.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Detalles del trabajo de monitoreo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MonitoringJob'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags:
+        - Monitoring
+      summary: Actualizar trabajo de monitoreo
+      description: Actualiza un trabajo de monitoreo específico.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MonitoringJobUpdate'
+      responses:
+        '200':
+          description: Trabajo de monitoreo actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MonitoringJob'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - Monitoring
+      summary: Eliminar trabajo de monitoreo
+      description: Elimina (soft delete) un trabajo de monitoreo específico.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '204':
+          description: Trabajo de monitoreo eliminado
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/monitoring/jobs/{id}/run-now/:
+    post:
+      tags:
+        - Monitoring
+      summary: Ejecutar trabajo de monitoreo ahora
+      description: Inicia inmediatamente la ejecución de un trabajo de monitoreo.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Ejecución iniciada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobExecutionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/monitoring/jobs/{id}/schedule/:
+    post:
+      tags:
+        - Monitoring
+      summary: Programar trabajo de monitoreo
+      description: Programa un trabajo de monitoreo para ejecuciones futuras.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleJob'
+      responses:
+        '200':
+          description: Trabajo programado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobScheduleResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/monitoring/jobs/{id}/unschedule/:
+    post:
+      tags:
+        - Monitoring
+      summary: Cancelar programación de trabajo de monitoreo
+      description: Cancela la programación de un trabajo de monitoreo.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Programación cancelada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobUnscheduleResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/monitoring/jobs/{id}/enable/:
+    post:
+      tags:
+        - Monitoring
+      summary: Habilitar trabajo de monitoreo
+      description: Habilita un trabajo de monitoreo deshabilitado.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Trabajo habilitado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobEnableResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/monitoring/jobs/{id}/disable/:
+    post:
+      tags:
+        - Monitoring
+      summary: Deshabilitar trabajo de monitoreo
+      description: Deshabilita un trabajo de monitoreo activo.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Trabajo deshabilitado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobDisableResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/monitoring/jobs/{id}/test/:
+    get:
+      tags:
+        - Monitoring
+      summary: Probar trabajo de monitoreo
+      description: Ejecuta una prueba del trabajo de monitoreo sin guardar resultados.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Resultado de la prueba
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobTestResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/monitoring/jobs/{id}/executions/:
+    get:
+      tags:
+        - Monitoring
+      summary: Listar ejecuciones de trabajo de monitoreo
+      description: Devuelve una lista de ejecuciones de un trabajo de monitoreo específico.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/ordering'
+      responses:
+        '200':
+          description: Lista de ejecuciones del trabajo de monitoreo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  next:
+                    type: string
+                    nullable: true
+                  previous:
+                    type: string
+                    nullable: true
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MonitoringJobExecution'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/monitoring/jobs/{id}/statistics/:
+    get:
+      tags:
+        - Monitoring
+      summary: Obtener estadísticas del trabajo de monitoreo
+      description: Devuelve estadísticas agregadas de un trabajo de monitoreo específico.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Estadísticas del trabajo de monitoreo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStatistics'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/monitoring/jobs/active/:
+    get:
+      tags:
+        - Monitoring
+      summary: Obtener trabajos de monitoreo activos
+      description: Devuelve una lista de trabajos de monitoreo activos.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/ordering'
+      responses:
+        '200':
+          description: Lista de trabajos de monitoreo activos
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  next:
+                    type: string
+                    nullable: true
+                  previous:
+                    type: string
+                    nullable: true
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MonitoringJob'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/monitoring/jobs/critical/:
+    get:
+      tags:
+        - Monitoring
+      summary: Obtener trabajos de monitoreo críticos
+      description: Devuelve una lista de trabajos de monitoreo con severidad crítica.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/ordering'
+      responses:
+        '200':
+          description: Lista de trabajos de monitoreo críticos
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  next:
+                    type: string
+                    nullable: true
+                  previous:
+                    type: string
+                    nullable: true
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MonitoringJob'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/monitoring/jobs/my-jobs/:
+    get:
+      tags:
+        - Monitoring
+      summary: Obtener mis trabajos de monitoreo
+      description: Devuelve una lista de trabajos de monitoreo asignados al usuario actual.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/ordering'
+      responses:
+        '200':
+          description: Lista de mis trabajos de monitoreo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  next:
+                    type: string
+                    nullable: true
+                  previous:
+                    type: string
+                    nullable: true
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MonitoringJob'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/monitoring/jobs/bulk-action/:
+    post:
+      tags:
+        - Monitoring
+      summary: Acción masiva en trabajos de monitoreo
+      description: Ejecuta una acción (ej: habilitar, deshabilitar) en múltiples trabajos.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkJobAction'
+      responses:
+        '200':
+          description: Acción masiva completada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkJobActionResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/monitoring/jobs/statistics/:
+    get:
+      tags:
+        - Monitoring
+      summary: Obtener estadísticas generales de trabajos de monitoreo
+      description: Devuelve estadísticas agregadas de todos los trabajos de monitoreo.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Estadísticas generales de trabajos de monitoreo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStatistics'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # --- Alerts ---
+  /api/alerts/alerts/:
+    get:
+      tags:
+        - Alerts
+      summary: Listar alertas
+      description: Devuelve una lista de alertas.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/ordering'
+      responses:
+        '200':
+          description: Lista de alertas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  next:
+                    type: string
+                    nullable: true
+                  previous:
+                    type: string
+                    nullable: true
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Alert'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - Alerts
+      summary: Crear alerta
+      description: Crea una nueva alerta.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertCreate'
+      responses:
+        '201':
+          description: Alerta creada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Alert'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/alerts/alerts/{id}/:
+    get:
+      tags:
+        - Alerts
+      summary: Obtener alerta
+      description: Devuelve los detalles de una alerta específica.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Detalles de la alerta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Alert'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags:
+        - Alerts
+      summary: Actualizar alerta
+      description: Actualiza una alerta específica.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertUpdate'
+      responses:
+        '200':
+          description: Alerta actualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Alert'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - Alerts
+      summary: Eliminar alerta
+      description: Elimina (soft delete) una alerta específica.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '204':
+          description: Alerta eliminada
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/alerts/alerts/{id}/acknowledge/:
+    post:
+      tags:
+        - Alerts
+      summary: Reconocer alerta
+      description: Marca una alerta como reconocida por el usuario.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AcknowledgeAlert'
+      responses:
+        '200':
+          description: Alerta reconocida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertActionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/alerts/alerts/{id}/resolve/:
+    post:
+      tags:
+        - Alerts
+      summary: Resolver alerta
+      description: Marca una alerta como resuelta por el usuario.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveAlert'
+      responses:
+        '200':
+          description: Alerta resuelta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertActionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/alerts/alerts/{id}/dismiss/:
+    post:
+      tags:
+        - Alerts
+      summary: Descartar alerta
+      description: Marca una alerta como descartada por el usuario.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DismissAlert'
+      responses:
+        '200':
+          description: Alerta descartada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertActionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/alerts/alerts/{id}/assign/:
+    post:
+      tags:
+        - Alerts
+      summary: Asignar alerta
+      description: Asigna una alerta a un usuario específico.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignAlert'
+      responses:
+        '200':
+          description: Alerta asignada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertActionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/alerts/alerts/{id}/comment/:
+    post:
+      tags:
+        - Alerts
+      summary: Comentar en alerta
+      description: Añade un comentario a una alerta específica.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentOnAlert'
+      responses:
+        '200':
+          description: Comentario añadido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertActionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/alerts/alerts/{id}/actions/:
+    get:
+      tags:
+        - Alerts
+      summary: Obtener acciones de alerta
+      description: Devuelve el historial de acciones realizadas sobre una alerta.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Historial de acciones de la alerta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertActionsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/alerts/alerts/{id}/notifications/:
+    get:
+      tags:
+        - Alerts
+      summary: Obtener notificaciones de alerta
+      description: Devuelve el historial de notificaciones enviadas por una alerta.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Historial de notificaciones de la alerta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertNotificationsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/alerts/alerts/active/:
+    get:
+      tags:
+        - Alerts
+      summary: Obtener alertas activas
+      description: Devuelve una lista de alertas activas.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/ordering'
+      responses:
+        '200':
+          description: Lista de alertas activas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  next:
+                    type: string
+                    nullable: true
+                  previous:
+                    type: string
+                    nullable: true
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Alert'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/alerts/alerts/critical/:
+    get:
+      tags:
+        - Alerts
+      summary: Obtener alertas críticas
+      description: Devuelve una lista de alertas con severidad crítica.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/ordering'
+      responses:
+        '200':
+          description: Lista de alertas críticas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  next:
+                    type: string
+                    nullable: true
+                  previous:
+                    type: string
+                    nullable: true
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Alert'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/alerts/alerts/my-alerts/:
+    get:
+      tags:
+        - Alerts
+      summary: Obtener mis alertas
+      description: Devuelve una lista de alertas asignadas al usuario actual.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/ordering'
+      responses:
+        '200':
+          description: Lista de mis alertas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  next:
+                    type: string
+                    nullable: true
+                  previous:
+                    type: string
+                    nullable: true
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Alert'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/alerts/alerts/bulk-action/:
+    post:
+      tags:
+        - Alerts
+      summary: Acción masiva en alertas
+      description: Ejecuta una acción (ej: reconocer, resolver, descartar) en múltiples alertas.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkAlertAction'
+      responses:
+        '200':
+          description: Acción masiva completada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkAlertActionResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/alerts/alerts/statistics/:
+    get:
+      tags:
+        - Alerts
+      summary: Obtener estadísticas de alertas
+      description: Devuelve estadísticas agregadas de todas las alertas.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Estadísticas de alertas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertStatistics'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # --- Notifications ---
+  /api/notifications/notifications/:
+    get:
+      tags:
+        - Notifications
+      summary: Listar notificaciones
+      description: Devuelve una lista de notificaciones.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/ordering'
+      responses:
+        '200':
+          description: Lista de notificaciones
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  next:
+                    type: string
+                    nullable: true
+                  previous:
+                    type: string
+                    nullable: true
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Notification'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - Notifications
+      summary: Crear notificación
+      description: Crea una nueva notificación.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationCreate'
+      responses:
+        '201':
+          description: Notificación creada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/notifications/notifications/{id}/:
+    get:
+      tags:
+        - Notifications
+      summary: Obtener notificación
+      description: Devuelve los detalles de una notificación específica.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Detalles de la notificación
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags:
+        - Notifications
+      summary: Actualizar notificación
+      description: Actualiza una notificación específica.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationUpdate'
+      responses:
+        '200':
+          description: Notificación actualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - Notifications
+      summary: Eliminar notificación
+      description: Elimina (soft delete) una notificación específica.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '204':
+          description: Notificación eliminada
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/notifications/notifications/{id}/mark-read/:
+    post:
+      tags:
+        - Notifications
+      summary: Marcar notificación como leída
+      description: Marca una notificación como leída por el usuario.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Notificación marcada como leída
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationActionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/notifications/notifications/mark-all-read/:
+    post:
+      tags:
+        - Notifications
+      summary: Marcar todas las notificaciones como leídas
+      description: Marca todas las notificaciones del usuario como leídas.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Todas las notificaciones marcadas como leídas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationActionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/notifications/notifications/unread/:
+    get:
+      tags:
+        - Notifications
+      summary: Obtener notificaciones no leídas
+      description: Devuelve una lista de notificaciones no leídas del usuario.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/ordering'
+      responses:
+        '200':
+          description: Lista de notificaciones no leídas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  next:
+                    type: string
+                    nullable: true
+                  previous:
+                    type: string
+                    nullable: true
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Notification'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/notifications/notifications/statistics/:
+    get:
+      tags:
+        - Notifications
+      summary: Obtener estadísticas de notificaciones
+      description: Devuelve estadísticas agregadas de todas las notificaciones.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Estadísticas de notificaciones
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationStatistics'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/notifications/notifications/cleanup/:
+    post:
+      tags:
+        - Notifications
+      summary: Limpiar notificaciones antiguas
+      description: Elimina notificaciones antiguas según la política de retención.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Limpieza de notificaciones completada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationCleanupResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/notifications/preferences/:
+    get:
+      tags:
+        - Notifications
+      summary: Listar preferencias de notificación
+      description: Devuelve una lista de preferencias de notificación.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/ordering'
+      responses:
+        '200':
+          description: Lista de preferencias de notificación
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  next:
+                    type: string
+                    nullable: true
+                  previous:
+                    type: string
+                    nullable: true
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NotificationPreference'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - Notifications
+      summary: Crear preferencia de notificación
+      description: Crea una nueva preferencia de notificación.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationPreferenceCreate'
+      responses:
+        '201':
+          description: Preferencia de notificación creada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreference'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/notifications/preferences/{id}/:
+    get:
+      tags:
+        - Notifications
+      summary: Obtener preferencia de notificación
+      description: Devuelve los detalles de una preferencia de notificación específica.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Detalles de la preferencia de notificación
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreference'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags:
+        - Notifications
+      summary: Actualizar preferencia de notificación
+      description: Actualiza una preferencia de notificación específica.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationPreferenceUpdate'
+      responses:
+        '200':
+          description: Preferencia de notificación actualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreference'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - Notifications
+      summary: Eliminar preferencia de notificación
+      description: Elimina (soft delete) una preferencia de notificación específica.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '204':
+          description: Preferencia de notificación eliminada
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/notifications/preferences/me/:
+    get:
+      tags:
+        - Notifications
+      summary: Obtener mis preferencias de notificación
+      description: Devuelve las preferencias de notificación del usuario actual.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Mis preferencias de notificación
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreference'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # --- Reports ---
+  /api/reports/reports/:
+    get:
+      tags:
+        - Reports
+      summary: Listar informes
+      description: Devuelve una lista de informes.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/ordering'
+      responses:
+        '200':
+          description: Lista de informes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  next:
+                    type: string
+                    nullable: true
+                  previous:
+                    type: string
+                    nullable: true
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Report'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - Reports
+      summary: Crear informe
+      description: Crea un nuevo informe.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportCreate'
+      responses:
+        '201':
+          description: Informe creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/reports/reports/{id}/:
+    get:
+      tags:
+        - Reports
+      summary: Obtener informe
+      description: Devuelve los detalles de un informe específico.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Detalles del informe
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags:
+        - Reports
+      summary: Actualizar informe
+      description: Actualiza un informe específico.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportUpdate'
+      responses:
+        '200':
+          description: Informe actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - Reports
+      summary: Eliminar informe
+      description: Elimina (soft delete) un informe específico.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '204':
+          description: Informe eliminado
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/reports/reports/{id}/generate/:
+    post:
+      tags:
+        - Reports
+      summary: Generar informe
+      description: Inicia la generación de un informe específico.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateReport'
+      responses:
+        '200':
+          description: Generación de informe iniciada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportActionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/reports/reports/{id}/download/:
+    post:
+      tags:
+        - Reports
+      summary: Descargar informe
+      description: Descarga el archivo generado de un informe específico.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Archivo del informe descargado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportDownloadResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/reports/reports/{id}/schedule/:
+    post:
+      tags:
+        - Reports
+      summary: Programar informe
+      description: Programa un informe para generaciones automáticas.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleReport'
+      responses:
+        '200':
+          description: Informe programado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportScheduleResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/reports/reports/{id}/unschedule/:
+    post:
+      tags:
+        - Reports
+      summary: Cancelar programación de informe
+      description: Cancela la programación automática de un informe.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Programación cancelada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportUnscheduleResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/reports/reports/{id}/run-now/:
+    post:
+      tags:
+        - Reports
+      summary: Ejecutar informe ahora
+      description: Inicia inmediatamente la generación de un informe.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunReportNow'
+      responses:
+        '200':
+          description: Ejecución iniciada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportActionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/reports/reports/{id}/actions/:
+    get:
+      tags:
+        - Reports
+      summary: Obtener acciones de informe
+      description: Devuelve el historial de acciones realizadas sobre un informe.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Historial de acciones del informe
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportActionsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/reports/reports/{id}/notifications/:
+    get:
+      tags:
+        - Reports
+      summary: Obtener notificaciones de informe
+      description: Devuelve el historial de notificaciones enviadas por un informe.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Historial de notificaciones del informe
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportNotificationsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/reports/reports/active/:
+    get:
+      tags:
+        - Reports
+      summary: Obtener informes activos
+      description: Devuelve una lista de informes activos.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/ordering'
+      responses:
+        '200':
+          description: Lista de informes activos
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  next:
+                    type: string
+                    nullable: true
+                  previous:
+                    type: string
+                    nullable: true
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Report'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/reports/reports/critical/:
+    get:
+      tags:
+        - Reports
+      summary: Obtener informes críticos
+      description: Devuelve una lista de informes con severidad crítica.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/ordering'
+      responses:
+        '200':
+          description: Lista de informes críticos
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  next:
+                    type: string
+                    nullable: true
+                  previous:
+                    type: string
+                    nullable: true
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Report'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/reports/reports/my-reports/:
+    get:
+      tags:
+        - Reports
+      summary: Obtener mis informes
+      description: Devuelve una lista de informes asignados al usuario actual.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/ordering'
+      responses:
+        '200':
+          description: Lista de mis informes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  next:
+                    type: string
+                    nullable: true
+                  previous:
+                    type: string
+                    nullable: true
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Report'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/reports/reports/bulk-action/:
+    post:
+      tags:
+        - Reports
+      summary: Acción masiva en informes
+      description: Ejecuta una acción (ej: generar, programar, cancelar) en múltiples informes.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkReportAction'
+      responses:
+        '200':
+          description: Acción masiva completada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkReportActionResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/reports/reports/statistics/:
+    get:
+      tags:
+        - Reports
+      summary: Obtener estadísticas de informes
+      description: Devuelve estadísticas agregadas de todos los informes.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Estadísticas de informes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportStatistics'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # --- Common ---
+  /health/:
+    get:
+      tags:
+        - Common
+      summary: Health Check
+      description: Verifies the health of the application
+      responses:
+        '200':
+          description: Application is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthCheck'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /stats/:
+    get:
+      tags:
+        - Common
+      summary: Get Application Statistics
+      description: Retrieves overall application statistics
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Application statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationStats'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/schema/:
+    get:
+      tags:
+        - Common
+      summary: API Schema (OpenAPI)
+      description: Returns the OpenAPI schema for the API
+      responses:
+        '200':
+          description: OpenAPI schema
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/schema/swagger-ui/:
+    get:
+      tags:
+        - Common
+      summary: Swagger UI
+      description: Interactive API documentation via Swagger UI
+      responses:
+        '200':
+          description: Swagger UI page
+          content:
+            text/html:
+              schema:
+                type: string
+  /api/schema/redoc/:
+    get:
+      tags:
+        - Common
+      summary: ReDoc UI
+      description: Interactive API documentation via ReDoc
+      responses:
+        '200':
+          description: ReDoc UI page
+          content:
+            text/html:
+              schema:
+                type: string
+
+# --- Components ---
+components:
+  schemas:
+    # --- Authentication Schemas ---
+    UserRegistration:
+      type: object
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+        password_confirm:
+          type: string
+          format: password
+      required:
+        - username
+        - email
+        - password
+        - password_confirm
+
+    UserRegistrationResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+
+    UserLogin:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+      required:
+        - username
+        - password
+
+    JWTToken:
+      type: object
+      properties:
+        access:
+          type: string
+        refresh:
+          type: string
+
+    RefreshToken:
+      type: object
+      properties:
+        refresh:
+          type: string
+      required:
+        - refresh
+
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        first_name:
+          type: string
+        last_name:
+          type: string
+        is_active:
+          type: boolean
+        is_staff:
+          type: boolean
+        is_superuser:
+          type: boolean
+        date_joined:
+          type: string
+          format: date-time
+        last_login:
+          type: string
+          format: date-time
+
+    UserProfileUpdate:
+      type: object
+      properties:
+        first_name:
+          type: string
+        last_name:
+          type: string
+        email:
+          type: string
+          format: email
+
+    ChangePassword:
+      type: object
+      properties:
+        old_password:
+          type: string
+          format: password
+        new_password:
+          type: string
+          format: password
+        new_password_confirm:
+          type: string
+          format: password
+      required:
+        - old_password
+        - new_password
+        - new_password_confirm
+
+    # --- GIS Services Schemas ---
+    ArcGISService:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        base_url:
+          type: string
+          format: uri
+        service_type:
+          type: string
+          enum: [featureserver, mapserver, imageserver, geocodeserver, geometryserver, gpserver]
+        username:
+          type: string
+        password:
+          type: string
+        token:
+          type: string
+        token_expires:
+          type: string
+          format: date-time
+        timeout_seconds:
+          type: integer
+        max_record_count:
+          type: integer
+        is_monitored:
+          type: boolean
+        monitoring_interval:
+          type: integer
+        version:
+          type: string
+        capabilities:
+          type: object
+        metadata:
+          type: object
+        status:
+          type: string
+          enum: [active, inactive, error, maintenance, unknown]
+        last_check:
+          type: string
+          format: date-time
+        last_successful_check:
+          type: string
+          format: date-time
+        consecutive_failures:
+          type: integer
+        extent:
+          type: object # GeoJSON Polygon
+        created_by:
+          type: string
+          format: uuid
+        created_by_name:
+          type: string
+        created:
+          type: string
+          format: date-time
+        modified:
+          type: string
+          format: date-time
+
+    ArcGISServiceCreate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        base_url:
+          type: string
+          format: uri
+        service_type:
+          type: string
+          enum: [featureserver, mapserver, imageserver, geocodeserver, geometryserver, gpserver]
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+        timeout_seconds:
+          type: integer
+        max_record_count:
+          type: integer
+        is_monitored:
+          type: boolean
+        monitoring_interval:
+          type: integer
+      required:
+        - name
+        - base_url
+        - service_type
+
+    ArcGISServiceUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        base_url:
+          type: string
+          format: uri
+        service_type:
+          type: string
+          enum: [featureserver, mapserver, imageserver, geocodeserver, geometryserver, gpserver]
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+        timeout_seconds:
+          type: integer
+        max_record_count:
+          type: integer
+        is_monitored:
+          type: boolean
+        monitoring_interval:
+          type: integer
+
+    TestConnection:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+        timeout_seconds:
+          type: integer
+
+    TestConnectionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        service_info:
+          type: object
+
+    SyncLayers:
+      type: object
+      properties:
+        auto_monitor:
+          type: boolean
+        layer_ids:
+          type: array
+          items:
+            type: integer
+
+    SyncLayersResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        synced:
+          type: integer
+        updated:
+          type: integer
+        errors:
+          type: integer
+        synced_layers:
+          type: array
+          items:
+            type: string
+        updated_layers:
+          type: array
+          items:
+            type: string
+        error_details:
+          type: array
+          items:
+            type: object
+
+    ServiceHealth:
+      type: object
+      properties:
+        service_id:
+          type: string
+          format: uuid
+        service_name:
+          type: string
+        status:
+          type: string
+          enum: [active, inactive, error, maintenance, unknown]
+        is_online:
+          type: boolean
+        last_check:
+          type: string
+          format: date-time
+        last_successful_check:
+          type: string
+          format: date-time
+        consecutive_failures:
+          type: integer
+        average_response_time:
+          type: number
+          format: float
+        success_rate:
+          type: number
+          format: float
+        monitored_layers:
+          type: integer
+
+    ServiceMetrics:
+      type: object
+      properties:
+        period_hours:
+          type: integer
+        total_requests:
+          type: integer
+        metrics:
+          type: array
+          items:
+            type: object
+
+    ServiceStatistics:
+      type: object
+      properties:
+        total_services:
+          type: integer
+        active_services:
+          type: integer
+        monitored_services:
+          type: integer
+        services_with_errors:
+          type: integer
+        by_type:
+          type: object
+        total_layers:
+          type: integer
+        monitored_layers:
+          type: integer
+
+    # --- Monitoring Schemas ---
+    MonitoringJob:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        service:
+          type: string
+          format: uuid
+        layer:
+          type: string
+          format: uuid
+        schedule_expression:
+          type: string
+        is_active:
+          type: boolean
+        max_runtime_minutes:
+          type: integer
+        detection_algorithm:
+          type: string
+          enum: [simple_count, hash_comparison, field_comparison, geometric_analysis, statistical_analysis, ml_anomaly]
+        change_threshold:
+          type: number
+          format: float
+        alert_on_changes:
+          type: boolean
+        alert_on_errors:
+          type: boolean
+        alert_threshold:
+          type: string
+          enum: [any, low, medium, high, critical]
+        last_run:
+          type: string
+          format: date-time
+        last_successful_run:
+          type: string
+          format: date-time
+        next_run:
+          type: string
+          format: date-time
+        consecutive_failures:
+          type: integer
+        status:
+          type: string
+          enum: [active, paused, stopped, error, maintenance]
+        created_by:
+          type: string
+          format: uuid
+        created_by_name:
+          type: string
+        created:
+          type: string
+          format: date-time
+        modified:
+          type: string
+          format: date-time
+
+    MonitoringJobCreate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        service:
+          type: string
+          format: uuid
+        layer:
+          type: string
+          format: uuid
+        schedule_expression:
+          type: string
+        is_active:
+          type: boolean
+        max_runtime_minutes:
+          type: integer
+        detection_algorithm:
+          type: string
+          enum: [simple_count, hash_comparison, field_comparison, geometric_analysis, statistical_analysis, ml_anomaly]
+        change_threshold:
+          type: number
+          format: float
+        alert_on_changes:
+          type: boolean
+        alert_on_errors:
+          type: boolean
+        alert_threshold:
+          type: string
+          enum: [any, low, medium, high, critical]
+      required:
+        - name
+        - service
+        - layer
+        - schedule_expression
+
+    MonitoringJobUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        service:
+          type: string
+          format: uuid
+        layer:
+          type: string
+          format: uuid
+        schedule_expression:
+          type: string
+        is_active:
+          type: boolean
+        max_runtime_minutes:
+          type: integer
+        detection_algorithm:
+          type: string
+          enum: [simple_count, hash_comparison, field_comparison, geometric_analysis, statistical_analysis, ml_anomaly]
+        change_threshold:
+          type: number
+          format: float
+        alert_on_changes:
+          type: boolean
+        alert_on_errors:
+          type: boolean
+        alert_threshold:
+          type: string
+          enum: [any, low, medium, high, critical]
+
+    JobExecutionResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        job_id:
+          type: string
+          format: uuid
+        job_name:
+          type: string
+        task_id:
+          type: string
+
+    ScheduleJob:
+      type: object
+      properties:
+        schedule_expression:
+          type: string
+      required:
+        - schedule_expression
+
+    JobScheduleResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        is_scheduled:
+          type: boolean
+
+    JobUnscheduleResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        is_scheduled:
+          type: boolean
+
+    JobEnableResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        is_active:
+          type: boolean
+
+    JobDisableResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        is_active:
+          type: boolean
+
+    JobTestResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        test_result:
+          type: object
+
+    MonitoringJobExecution:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        job:
+          type: string
+          format: uuid
+        job_name:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        duration_seconds:
+          type: integer
+        success:
+          type: boolean
+        error_message:
+          type: string
+        layers_processed:
+          type: integer
+        snapshots_created:
+          type: integer
+        changes_detected:
+          type: integer
+        alerts_created:
+          type: integer
+        memory_usage_mb:
+          type: integer
+        cpu_usage_percent:
+          type: number
+          format: float
+        execution_log:
+          type: array
+          items:
+            type: object
+        performance_metrics:
+          type: object
+        created:
+          type: string
+          format: date-time
+        modified:
+          type: string
+          format: date-time
+
+    JobStatistics:
+      type: object
+      properties:
+        total_jobs:
+          type: integer
+        active_jobs:
+          type: integer
+        completed_jobs:
+          type: integer
+        failed_jobs:
+          type: integer
+        average_duration_seconds:
+          type: number
+          format: float
+        success_rate_percent:
+          type: number
+          format: float
+        jobs_by_status:
+          type: object
+        jobs_by_algorithm:
+          type: object
+        top_services_with_jobs:
+          type: array
+          items:
+            type: object
+
+    BulkJobAction:
+      type: object
+      properties:
+        job_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        action:
+          type: string
+          enum: [enable, disable, run_now, schedule, unschedule]
+        notes:
+          type: string
+      required:
+        - job_ids
+        - action
+
+    BulkJobActionResult:
+      type: object
+      properties:
+        message:
+          type: string
+        action:
+          type: string
+        total:
+          type: integer
+        success:
+          type: integer
+        failed:
+          type: integer
+
+    # --- Alerts Schemas ---
+    Alert:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        alert_id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+          enum: [change_detection, service_availability, data_quality, performance, security, system_health, threshold_breach, anomaly]
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        service:
+          type: string
+          format: uuid
+        layer:
+          type: string
+          format: uuid
+        assigned_to:
+          type: string
+          format: uuid
+        assigned_to_name:
+          type: string
+        status:
+          type: string
+          enum: [active, acknowledged, resolved, dismissed, expired]
+        first_detected:
+          type: string
+          format: date-time
+        last_updated:
+          type: string
+          format: date-time
+        acknowledged_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        auto_resolve:
+          type: boolean
+        auto_resolve_duration:
+          type: integer
+        suppress_similar:
+          type: boolean
+        suppression_duration:
+          type: integer
+        notification_sent:
+          type: boolean
+        notification_count:
+          type: integer
+        last_notification_sent:
+          type: string
+          format: date-time
+        external_ticket_id:
+          type: string
+        metadata:
+          type: object
+        tags:
+          type: array
+          items:
+            type: string
+        created_by:
+          type: string
+          format: uuid
+        created_by_name:
+          type: string
+        created:
+          type: string
+          format: date-time
+        modified:
+          type: string
+          format: date-time
+
+    AlertCreate:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        alert_id:
+          type: string
+        category:
+          type: string
+          enum: [change_detection, service_availability, data_quality, performance, security, system_health, threshold_breach, anomaly]
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        service:
+          type: string
+          format: uuid
+        layer:
+          type: string
+          format: uuid
+        assigned_to:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [active, acknowledged, resolved, dismissed, expired]
+        auto_resolve:
+          type: boolean
+        auto_resolve_duration:
+          type: integer
+        suppress_similar:
+          type: boolean
+        suppression_duration:
+          type: integer
+        notification_sent:
+          type: boolean
+        notification_count:
+          type: integer
+        external_ticket_id:
+          type: string
+        metadata:
+          type: object
+        tags:
+          type: array
+          items:
+            type: string
+      required:
+        - title
+        - alert_id
+        - category
+        - severity
+
+    AlertUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        alert_id:
+          type: string
+        category:
+          type: string
+          enum: [change_detection, service_availability, data_quality, performance, security, system_health, threshold_breach, anomaly]
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        service:
+          type: string
+          format: uuid
+        layer:
+          type: string
+          format: uuid
+        assigned_to:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [active, acknowledged, resolved, dismissed, expired]
+        auto_resolve:
+          type: boolean
+        auto_resolve_duration:
+          type: integer
+        suppress_similar:
+          type: boolean
+        suppression_duration:
+          type: integer
+        notification_sent:
+          type: boolean
+        notification_count:
+          type: integer
+        external_ticket_id:
+          type: string
+        metadata:
+          type: object
+        tags:
+          type: array
+          items:
+            type: string
+
+    AcknowledgeAlert:
+      type: object
+      properties:
+        notes:
+          type: string
+
+    ResolveAlert:
+      type: object
+      properties:
+        notes:
+          type: string
+
+    DismissAlert:
+      type: object
+      properties:
+        notes:
+          type: string
+
+    AssignAlert:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        notes:
+          type: string
+      required:
+        - user_id
+
+    CommentOnAlert:
+      type: object
+      properties:
+        comment:
+          type: string
+      required:
+        - comment
+
+    AlertActionResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        alert:
+          type: object
+
+    AlertActionsResponse:
+      type: object
+      properties:
+        alert_id:
+          type: string
+          format: uuid
+        action_count:
+          type: integer
+        actions:
+          type: array
+          items:
+            type: object
+
+    AlertNotificationsResponse:
+      type: object
+      properties:
+        alert_id:
+          type: string
+          format: uuid
+        notification_count:
+          type: integer
+        notifications:
+          type: array
+          items:
+            type: object
+
+    BulkAlertAction:
+      type: object
+      properties:
+        alert_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        action:
+          type: string
+          enum: [acknowledge, resolve, dismiss]
+        notes:
+          type: string
+      required:
+        - alert_ids
+        - action
+
+    BulkAlertActionResult:
+      type: object
+      properties:
+        message:
+          type: string
+        action:
+          type: string
+        total:
+          type: integer
+        success:
+          type: integer
+        failed:
+          type: integer
+
+    AlertStatistics:
+      type: object
+      properties:
+        total_alerts:
+          type: integer
+        active_alerts:
+          type: integer
+        critical_alerts:
+          type: integer
+        unacknowledged_alerts:
+          type: integer
+        resolved_today:
+          type: integer
+        average_resolution_time_hours:
+          type: number
+          format: float
+        alerts_by_severity:
+          type: object
+        alerts_by_category:
+          type: object
+        top_services_with_alerts:
+          type: array
+          items:
+            type: object
+
+    # --- Notifications Schemas ---
+    Notification:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        message:
+          type: string
+        short_message:
+          type: string
+        notification_type:
+          type: string
+          enum: [alert, info, warning, success, error, system]
+        priority:
+          type: string
+          enum: [low, normal, high, urgent]
+        user:
+          type: string
+          format: uuid
+        user_email:
+          type: string
+          format: email
+        is_read:
+          type: boolean
+        read_at:
+          type: string
+          format: date-time
+        link:
+          type: string
+          format: uri
+        action_text:
+          type: string
+        action_url:
+          type: string
+          format: uri
+        metadata:
+          type: object
+        alert:
+          type: string
+          format: uuid
+        alert_title:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        group_key:
+          type: string
+        is_expired:
+          type: boolean
+        age_hours:
+          type: number
+          format: float
+        created:
+          type: string
+          format: date-time
+        modified:
+          type: string
+          format: date-time
+
+    NotificationCreate:
+      type: object
+      properties:
+        title:
+          type: string
+        message:
+          type: string
+        short_message:
+          type: string
+        notification_type:
+          type: string
+          enum: [alert, info, warning, success, error, system]
+        priority:
+          type: string
+          enum: [low, normal, high, urgent]
+        user:
+          type: string
+          format: uuid
+        is_read:
+          type: boolean
+        link:
+          type: string
+          format: uri
+        action_text:
+          type: string
+        action_url:
+          type: string
+          format: uri
+        metadata:
+          type: object
+        alert:
+          type: string
+          format: uuid
+        expires_at:
+          type: string
+          format: date-time
+        group_key:
+          type: string
+      required:
+        - title
+        - message
+        - notification_type
+        - priority
+        - user
+
+    NotificationUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+        message:
+          type: string
+        short_message:
+          type: string
+        notification_type:
+          type: string
+          enum: [alert, info, warning, success, error, system]
+        priority:
+          type: string
+          enum: [low, normal, high, urgent]
+        user:
+          type: string
+          format: uuid
+        is_read:
+          type: boolean
+        link:
+          type: string
+          format: uri
+        action_text:
+          type: string
+        action_url:
+          type: string
+          format: uri
+        metadata:
+          type: object
+        alert:
+          type: string
+          format: uuid
+        expires_at:
+          type: string
+          format: date-time
+        group_key:
+          type: string
+
+    NotificationActionResponse:
+      type: object
+      properties:
+        message:
+          type: string
+
+    NotificationStatistics:
+      type: object
+      properties:
+        total_notifications:
+          type: integer
+        unread_notifications:
+          type: integer
+        notifications_today:
+          type: integer
+        emails_sent_today:
+          type: integer
+        failed_emails:
+          type: integer
+        notifications_by_type:
+          type: object
+        notifications_by_priority:
+          type: object
+        top_users_with_notifications:
+          type: array
+          items:
+            type: object
+
+    NotificationCleanupResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        deleted_count:
+          type: integer
+
+    NotificationPreference:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user:
+          type: string
+          format: uuid
+        user_email:
+          type: string
+          format: email
+        email_enabled:
+          type: boolean
+        sms_enabled:
+          type: boolean
+        push_enabled:
+          type: boolean
+        in_app_enabled:
+          type: boolean
+        email_alert_notifications:
+          type: boolean
+        email_report_notifications:
+          type: boolean
+        email_system_notifications:
+          type: boolean
+        quiet_hours_enabled:
+          type: boolean
+        quiet_hours_start:
+          type: string
+          format: time
+        quiet_hours_end:
+          type: string
+          format: time
+        digest_enabled:
+          type: boolean
+        digest_frequency:
+          type: string
+          enum: [daily, weekly]
+        min_alert_severity:
+          type: string
+          enum: [low, medium, high, critical]
+        created:
+          type: string
+          format: date-time
+        modified:
+          type: string
+          format: date-time
+
+    NotificationPreferenceCreate:
+      type: object
+      properties:
+        user:
+          type: string
+          format: uuid
+        email_enabled:
+          type: boolean
+        sms_enabled:
+          type: boolean
+        push_enabled:
+          type: boolean
+        in_app_enabled:
+          type: boolean
+        email_alert_notifications:
+          type: boolean
+        email_report_notifications:
+          type: boolean
+        email_system_notifications:
+          type: boolean
+        quiet_hours_enabled:
+          type: boolean
+        quiet_hours_start:
+          type: string
+          format: time
+        quiet_hours_end:
+          type: string
+          format: time
+        digest_enabled:
+          type: boolean
+        digest_frequency:
+          type: string
+          enum: [daily, weekly]
+        min_alert_severity:
+          type: string
+          enum: [low, medium, high, critical]
+      required:
+        - user
+
+    NotificationPreferenceUpdate:
+      type: object
+      properties:
+        user:
+          type: string
+          format: uuid
+        email_enabled:
+          type: boolean
+        sms_enabled:
+          type: boolean
+        push_enabled:
+          type: boolean
+        in_app_enabled:
+          type: boolean
+        email_alert_notifications:
+          type: boolean
+        email_report_notifications:
+          type: boolean
+        email_system_notifications:
+          type: boolean
+        quiet_hours_enabled:
+          type: boolean
+        quiet_hours_start:
+          type: string
+          format: time
+        quiet_hours_end:
+          type: string
+          format: time
+        digest_enabled:
+          type: boolean
+        digest_frequency:
+          type: string
+          enum: [daily, weekly]
+        min_alert_severity:
+          type: string
+          enum: [low, medium, high, critical]
+
+    # --- Reports Schemas ---
+    Report:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        report_id:
+          type: string
+        report_type:
+          type: string
+          enum: [monitoring_summary, alert_history, data_quality, performance, change_detection, custom, layer_inventory, service_health, user_activity, system_audit]
+        format_type:
+          type: string
+          enum: [pdf, xlsx, csv, geojson, html, docx, json, zip]
+        service:
+          type: string
+          format: uuid
+        layer:
+          type: string
+          format: uuid
+        assigned_to:
+          type: string
+          format: uuid
+        assigned_to_name:
+          type: string
+        status:
+          type: string
+          enum: [active, acknowledged, resolved, dismissed, expired]
+        first_detected:
+          type: string
+          format: date-time
+        last_updated:
+          type: string
+          format: date-time
+        acknowledged_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        auto_resolve:
+          type: boolean
+        auto_resolve_duration:
+          type: integer
+        suppress_similar:
+          type: boolean
+        suppression_duration:
+          type: integer
+        notification_sent:
+          type: boolean
+        notification_count:
+          type: integer
+        last_notification_sent:
+          type: string
+          format: date-time
+        external_ticket_id:
+          type: string
+        metadata:
+          type: object
+        tags:
+          type: array
+          items:
+            type: string
+        created_by:
+          type: string
+          format: uuid
+        created_by_name:
+          type: string
+        created:
+          type: string
+          format: date-time
+        modified:
+          type: string
+          format: date-time
+
+    ReportCreate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        report_id:
+          type: string
+        report_type:
+          type: string
+          enum: [monitoring_summary, alert_history, data_quality, performance, change_detection, custom, layer_inventory, service_health, user_activity, system_audit]
+        format_type:
+          type: string
+          enum: [pdf, xlsx, csv, geojson, html, docx, json, zip]
+        service:
+          type: string
+          format: uuid
+        layer:
+          type: string
+          format: uuid
+        assigned_to:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [active, acknowledged, resolved, dismissed, expired]
+        auto_resolve:
+          type: boolean
+        auto_resolve_duration:
+          type: integer
+        suppress_similar:
+          type: boolean
+        suppression_duration:
+          type: integer
+        notification_sent:
+          type: boolean
+        notification_count:
+          type: integer
+        external_ticket_id:
+          type: string
+        metadata:
+          type: object
+        tags:
+          type: array
+          items:
+            type: string
+      required:
+        - name
+        - report_id
+        - report_type
+        - format_type
+
+    ReportUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        report_id:
+          type: string
+        report_type:
+          type: string
+          enum: [monitoring_summary, alert_history, data_quality, performance, change_detection, custom, layer_inventory, service_health, user_activity, system_audit]
+        format_type:
+          type: string
+          enum: [pdf, xlsx, csv, geojson, html, docx, json, zip]
+        service:
+          type: string
+          format: uuid
+        layer:
+          type: string
+          format: uuid
+        assigned_to:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [active, acknowledged, resolved, dismissed, expired]
+        auto_resolve:
+          type: boolean
+        auto_resolve_duration:
+          type: integer
+        suppress_similar:
+          type: boolean
+        suppression_duration:
+          type: integer
+        notification_sent:
+          type: boolean
+        notification_count:
+          type: integer
+        external_ticket_id:
+          type: string
+        metadata:
+          type: object
+        tags:
+          type: array
+          items:
+            type: string
+
+    GenerateReport:
+      type: object
+      properties:
+        parameters:
+          type: object
+        force:
+          type: boolean
+
+    RunReportNow:
+      type: object
+      properties:
+        parameters:
+          type: object
+
+    ScheduleReport:
+      type: object
+      properties:
+        schedule_expression:
+          type: string
+      required:
+        - schedule_expression
+
+    ReportActionResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        report:
+          type: object
+
+    ReportDownloadResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        download_url:
+          type: string
+          format: uri
+
+    ReportScheduleResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        is_scheduled:
+          type: boolean
+
+    ReportUnscheduleResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        is_scheduled:
+          type: boolean
+
+    ReportActionsResponse:
+      type: object
+      properties:
+        report_id:
+          type: string
+          format: uuid
+        action_count:
+          type: integer
+        actions:
+          type: array
+          items:
+            type: object
+
+    ReportNotificationsResponse:
+      type: object
+      properties:
+        report_id:
+          type: string
+          format: uuid
+        notification_count:
+          type: integer
+        notifications:
+          type: array
+          items:
+            type: object
+
+    BulkReportAction:
+      type: object
+      properties:
+        report_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        action:
+          type: string
+          enum: [generate, schedule, unschedule, run_now]
+        parameters:
+          type: object
+        notes:
+          type: string
+      required:
+        - report_ids
+        - action
+
+    BulkReportActionResult:
+      type: object
+      properties:
+        message:
+          type: string
+        action:
+          type: string
+        total:
+          type: integer
+        success:
+          type: integer
+        failed:
+          type: integer
+
+    ReportStatistics:
+      type: object
+      properties:
+        total_reports:
+          type: integer
+        active_reports:
+          type: integer
+        critical_reports:
+          type: integer
+        unacknowledged_reports:
+          type: integer
+        generated_today:
+          type: integer
+        average_generation_time_hours:
+          type: number
+          format: float
+        reports_by_type:
+          type: object
+        reports_by_format:
+          type: object
+        top_services_with_reports:
+          type: array
+          items:
+            type: object
+
+    # --- Common Schemas ---
+    HealthCheck:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, unhealthy]
+        timestamp:
+          type: string
+          format: date-time
+        components:
+          type: object
+
+    ApplicationStats:
+      type: object
+      properties:
+        total_users:
+          type: integer
+        active_users:
+          type: integer
+        total_services:
+          type: integer
+        monitored_services:
+          type: integer
+        total_layers:
+          type: integer
+        monitored_layers:
+          type: integer
+        total_alerts:
+          type: integer
+        active_alerts:
+          type: integer
+        total_reports:
+          type: integer
+        generated_reports_today:
+          type: integer
+        average_response_time_ms:
+          type: number
+          format: float
+        error_rate_percent:
+          type: number
+          format: float
+        uptime_hours:
+          type: number
+          format: float
+
+    # --- Parameters ---
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 20
+      - name: search
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: ordering
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: days
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 30
+      - name: hours
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 24
+      - name: severity
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [critical, high, medium, low, none]
+
+    # --- Responses ---
+    responses:
+      BadRequest:
+        description: Bad Request
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                error:
+                  type: string
+      Unauthorized:
+        description: Unauthorized
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                detail:
+                  type: string
+      Forbidden:
+        description: Forbidden
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                detail:
+                  type: string
+      NotFound:
+        description: Not Found
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                detail:
+                  type: string
+      InternalServerError:
+        description: Internal Server Error
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                error:
+                  type: string

@@ -1,0 +1,2553 @@
+{
+  "info": {
+    "name": "SMGI Backend API",
+    "description": "Colección de Postman para el Sistema de Monitoreo Geoespacial Inteligente - IIAP",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Register User",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"testuser\",\n  \"email\": \"test@example.com\",\n  \"password\": \"testpass123\",\n  \"password_confirm\": \"testpass123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/register/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "register", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login User",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response has access and refresh tokens\", function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('access');",
+                  "    pm.expect(jsonData).to.have.property('refresh');",
+                  "});",
+                  "",
+                  "pm.test(\"Save access token to environment variable\", function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.environment.set(\"auth_token\", jsonData.access);",
+                  "    pm.environment.set(\"refresh_token\", jsonData.refresh);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"testuser\",\n  \"password\": \"testpass123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "login", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Logout User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/logout/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "logout", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get User Profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/auth/profile/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "profile", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update User Profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"first_name\": \"Test\",\n  \"last_name\": \"User\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/profile/update/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "profile", "update", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Change User Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"old_password\": \"testpass123\",\n  \"new_password\": \"newtestpass456\",\n  \"new_password_confirm\": \"newtestpass456\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/profile/change-password/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "profile", "change-password", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Request Password Reset",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test@example.com\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/password-reset/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "password-reset", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Confirm Password Reset",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{reset_token}}\",\n  \"new_password\": \"newtestpass456\",\n  \"new_password_confirm\": \"newtestpass456\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/password-reset/confirm/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "password-reset", "confirm", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Verify Email",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{email_verification_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/verify-email/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "verify-email", ""]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "GIS Services",
+      "item": [
+        {
+          "name": "List Services",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/gis/services/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "gis", "services", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Service",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test Service\",\n  \"base_url\": \"https://test.arcgis.com\",\n  \"service_type\": \"featureserver\",\n  \"username\": \"test_user\",\n  \"password\": \"test_password\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/gis/services/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "gis", "services", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Service Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/gis/services/{{service_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "gis", "services", "{{service_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Service",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Test Service\",\n  \"description\": \"This service has been updated.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/gis/services/{{service_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "gis", "services", "{{service_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Service",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/gis/services/{{service_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "gis", "services", "{{service_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Test Service Connection",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"test_user\",\n  \"password\": \"test_password\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/gis/services/{{service_id}}/test-connection/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "gis", "services", "{{service_id}}", "test-connection", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Sync Layers from Service",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"auto_monitor\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/gis/services/{{service_id}}/sync-layers/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "gis", "services", "{{service_id}}", "sync-layers", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Service Health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/gis/services/{{service_id}}/health/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "gis", "services", "{{service_id}}", "health", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Service Metrics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/gis/services/{{service_id}}/metrics/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "gis", "services", "{{service_id}}", "metrics", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Service Statistics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/gis/services/statistics/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "gis", "services", "statistics", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Layers",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/gis/layers/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "gis", "layers", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Layer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"service\": \"{{service_id}}\",\n  \"layer_id\": 1,\n  \"name\": \"Test Layer\",\n  \"geometry_type\": \"polygon\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/gis/layers/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "gis", "layers", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Layer Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/gis/layers/{{layer_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "gis", "layers", "{{layer_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Layer",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Test Layer\",\n  \"description\": \"This layer has been updated.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/gis/layers/{{layer_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "gis", "layers", "{{layer_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Layer",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/gis/layers/{{layer_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "gis", "layers", "{{layer_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Layer Features",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/gis/layers/{{layer_id}}/features/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "gis", "layers", "{{layer_id}}", "features", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Layer Metadata",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/gis/layers/{{layer_id}}/metadata/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "gis", "layers", "{{layer_id}}", "metadata", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Layer Statistics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/gis/layers/{{layer_id}}/statistics/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "gis", "layers", "{{layer_id}}", "statistics", ""]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Monitoring",
+      "item": [
+        {
+          "name": "List Monitoring Jobs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/jobs/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "jobs", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Monitoring Job",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test Monitoring Job\",\n  \"description\": \"A test monitoring job.\",\n  \"service\": \"{{service_id}}\",\n  \"layer\": \"{{layer_id}}\",\n  \"schedule_expression\": \"0 */15 * * * *\",\n  \"is_active\": true,\n  \"max_runtime_minutes\": 60,\n  \"detection_algorithm\": \"simple_count\",\n  \"change_threshold\": 5.0,\n  \"alert_on_changes\": true,\n  \"alert_on_errors\": true,\n  \"alert_threshold\": \"medium\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/jobs/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "jobs", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Monitoring Job Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/jobs/{{job_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "jobs", "{{job_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Monitoring Job",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Test Monitoring Job\",\n  \"description\": \"This job has been updated.\",\n  \"is_active\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/jobs/{{job_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "jobs", "{{job_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Monitoring Job",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/jobs/{{job_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "jobs", "{{job_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Run Monitoring Job Now",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/jobs/{{job_id}}/run-now/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "jobs", "{{job_id}}", "run-now", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Schedule Monitoring Job",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/jobs/{{job_id}}/schedule/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "jobs", "{{job_id}}", "schedule", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Unschedule Monitoring Job",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/jobs/{{job_id}}/unschedule/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "jobs", "{{job_id}}", "unschedule", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Monitoring Job Executions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/jobs/{{job_id}}/executions/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "jobs", "{{job_id}}", "executions", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Monitoring Job Statistics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/jobs/{{job_id}}/statistics/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "jobs", "{{job_id}}", "statistics", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Layer Snapshots",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/snapshots/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "snapshots", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Layer Snapshot",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"layer\": \"{{layer_id}}\",\n  \"snapshot_hash\": \"abc123\",\n  \"feature_count\": 100,\n  \"total_area\": 500.0,\n  \"total_length\": 1000.0,\n  \"extent_bounds\": {\"xmin\": 0, \"ymin\": 0, \"xmax\": 10, \"ymax\": 10},\n  \"centroid\": {\"type\": \"Point\", \"coordinates\": [5, 5]},\n  \"attribute_stats\": {\"field1\": {\"avg\": 10.5}},\n  \"unique_values\": {\"field2\": 50},\n  \"null_count\": {\"field3\": 5},\n  \"invalid_geometries\": 0,\n  \"duplicate_records\": 0,\n  \"data_checksum\": \"def456\",\n  \"schema_version\": \"1.0\",\n  \"collection_duration_ms\": 1000,\n  \"data_size_bytes\": 10240,\n  \"compressed_size_bytes\": 5120,\n  \"is_valid\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/snapshots/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "snapshots", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Layer Snapshot Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/snapshots/{{snapshot_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "snapshots", "{{snapshot_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Layer Snapshot",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"is_valid\": false,\n  \"validation_errors\": [\"Test error\"]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/snapshots/{{snapshot_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "snapshots", "{{snapshot_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Layer Snapshot",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/snapshots/{{snapshot_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "snapshots", "{{snapshot_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Compare Layer Snapshots",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/snapshots/{{snapshot_id}}/compare/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "snapshots", "{{snapshot_id}}", "compare", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Download Layer Snapshot",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/snapshots/{{snapshot_id}}/download/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "snapshots", "{{snapshot_id}}", "download", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Change Detection Results",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/results/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "results", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Change Detection Result",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"current_snapshot\": \"{{snapshot_id}}\",\n  \"previous_snapshot\": \"{{previous_snapshot_id}}\",\n  \"algorithm_used\": \"simple_count\",\n  \"detection_duration_ms\": 100,\n  \"confidence_score\": 0.95,\n  \"has_changes\": true,\n  \"change_types\": [\"feature_count\"],\n  \"feature_count_change\": 10,\n  \"feature_count_change_percent\": 10.0,\n  \"area_change\": 50.0,\n  \"area_change_percent\": 5.0,\n  \"centroid_displacement\": 1.0,\n  \"modified_features\": 0,\n  \"new_features\": 5,\n  \"deleted_features\": 5,\n  \"data_quality_score\": 0.98,\n  \"data_quality_change\": 0.02,\n  \"change_details\": {\"test\": \"detail\"},\n  \"exceeds_threshold\": true,\n  \"threshold_values\": {\"test\": 5.0},\n  \"processing_status\": \"completed\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/results/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "results", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Change Detection Result Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/results/{{result_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "results", "{{result_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Change Detection Result",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"processing_status\": \"failed\",\n  \"error_message\": \"Test error\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/results/{{result_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "results", "{{result_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Change Detection Result",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/results/{{result_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "results", "{{result_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Change Detection Result Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/results/{{result_id}}/details/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "results", "{{result_id}}", "details", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Monitoring Rules",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/rules/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "rules", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Monitoring Rule",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test Monitoring Rule\",\n  \"description\": \"A test monitoring rule.\",\n  \"rule_type\": \"threshold_breach\",\n  \"expression\": \"{\\\"field\\\": \\\"population\\\", \\\"operator\\\": \\\"gt\\\", \\\"value\\\": 1000}\",\n  \"severity\": \"high\",\n  \"is_active\": true,\n  \"check_frequency_minutes\": 60,\n  \"notification_channels\": [\"email\", \"in_app\"],\n  \"auto_resolve\": true,\n  \"auto_resolve_duration_hours\": 24,\n  \"suppress_similar\": true,\n  \"suppression_duration_minutes\": 30\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/rules/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "rules", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Monitoring Rule Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/rules/{{rule_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "rules", "{{rule_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Monitoring Rule",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Test Monitoring Rule\",\n  \"description\": \"This rule has been updated.\",\n  \"is_active\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/rules/{{rule_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "rules", "{{rule_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Monitoring Rule",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/rules/{{rule_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "rules", "{{rule_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Enable Monitoring Rule",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/rules/{{rule_id}}/enable/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "rules", "{{rule_id}}", "enable", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Disable Monitoring Rule",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/rules/{{rule_id}}/disable/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "rules", "{{rule_id}}", "disable", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Test Monitoring Rule",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/monitoring/rules/{{rule_id}}/test/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "monitoring", "rules", "{{rule_id}}", "test", ""]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Alerts",
+      "item": [
+        {
+          "name": "List Alerts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/alerts/alerts/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "alerts", "alerts", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Alert",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Test Alert\",\n  \"description\": \"This is a test alert.\",\n  \"alert_id\": \"TEST-001\",\n  \"category\": \"change_detection\",\n  \"severity\": \"high\",\n  \"service\": \"{{service_id}}\",\n  \"layer\": \"{{layer_id}}\",\n  \"assigned_to\": \"{{user_id}}\",\n  \"auto_resolve\": true,\n  \"auto_resolve_duration\": 2,\n  \"suppress_similar\": true,\n  \"suppression_duration\": 30\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/alerts/alerts/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "alerts", "alerts", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Alert Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/alerts/alerts/{{alert_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "alerts", "alerts", "{{alert_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Alert",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Updated Test Alert\",\n  \"description\": \"This alert has been updated.\",\n  \"status\": \"acknowledged\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/alerts/alerts/{{alert_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "alerts", "alerts", "{{alert_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Alert",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/alerts/alerts/{{alert_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "alerts", "alerts", "{{alert_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Acknowledge Alert",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notes\": \"Acknowledged by test user.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/alerts/alerts/{{alert_id}}/acknowledge/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "alerts", "alerts", "{{alert_id}}", "acknowledge", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Resolve Alert",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notes\": \"Resolved by test user.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/alerts/alerts/{{alert_id}}/resolve/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "alerts", "alerts", "{{alert_id}}", "resolve", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Dismiss Alert",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notes\": \"Dismissed by test user.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/alerts/alerts/{{alert_id}}/dismiss/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "alerts", "alerts", "{{alert_id}}", "dismiss", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Assign Alert",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{assignee_user_id}}\",\n  \"notes\": \"Assigned by test user.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/alerts/alerts/{{alert_id}}/assign/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "alerts", "alerts", "{{alert_id}}", "assign", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Comment on Alert",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"comment\": \"This is a test comment.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/alerts/alerts/{{alert_id}}/comment/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "alerts", "alerts", "{{alert_id}}", "comment", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Alert Actions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/alerts/alerts/{{alert_id}}/actions/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "alerts", "alerts", "{{alert_id}}", "actions", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Alert Notifications",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/alerts/alerts/{{alert_id}}/notifications/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "alerts", "alerts", "{{alert_id}}", "notifications", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Active Alerts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/alerts/alerts/active/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "alerts", "alerts", "active", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Critical Alerts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/alerts/alerts/critical/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "alerts", "alerts", "critical", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Alerts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/alerts/alerts/my-alerts/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "alerts", "alerts", "my-alerts", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Bulk Alert Action",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"alert_ids\": [\"{{alert_id_1}}\", \"{{alert_id_2}}\"],\n  \"action\": \"acknowledge\",\n  \"notes\": \"Bulk acknowledge by test user.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/alerts/alerts/bulk-action/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "alerts", "alerts", "bulk-action", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Alert Statistics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/alerts/alerts/statistics/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "alerts", "alerts", "statistics", ""]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "item": [
+        {
+          "name": "List Notifications",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/notifications/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "notifications", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Notification",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Test Notification\",\n  \"message\": \"This is a test notification.\",\n  \"short_message\": \"Test notif\",\n  \"notification_type\": \"alert\",\n  \"priority\": \"high\",\n  \"is_read\": false,\n  \"link\": \"/alerts/{{alert_id}}\",\n  \"action_text\": \"View Alert\",\n  \"action_url\": \"/alerts/{{alert_id}}\",\n  \"metadata\": {\"test\": \"data\"},\n  \"alert\": \"{{alert_id}}\",\n  \"expires_at\": \"2024-12-31T23:59:59Z\",\n  \"group_key\": \"test-group\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/notifications/notifications/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "notifications", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Notification Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/notifications/{{notification_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "notifications", "{{notification_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Notification",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"is_read\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/notifications/notifications/{{notification_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "notifications", "{{notification_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Notification",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/notifications/{{notification_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "notifications", "{{notification_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Mark Notification as Read",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/notifications/{{notification_id}}/mark-read/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "notifications", "{{notification_id}}", "mark-read", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Mark All Notifications as Read",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/notifications/mark-all-read/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "notifications", "mark-all-read", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Unread Notifications",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/notifications/unread/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "notifications", "unread", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Notification Statistics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/notifications/statistics/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "notifications", "statistics", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cleanup Old Notifications",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/notifications/cleanup/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "notifications", "cleanup", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Notification Preferences",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/preferences/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "preferences", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Notification Preferences",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email_enabled\": true,\n  \"sms_enabled\": false,\n  \"push_enabled\": true,\n  \"in_app_enabled\": true,\n  \"email_alert_notifications\": true,\n  \"quiet_hours_enabled\": false,\n  \"digest_enabled\": false,\n  \"min_alert_severity\": \"medium\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/notifications/preferences/{{preference_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "preferences", "{{preference_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Notification Preferences",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/preferences/me/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "preferences", "me", ""]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Reports",
+      "item": [
+        {
+          "name": "List Reports",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/reports/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "reports", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Report",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test Report\",\n  \"description\": \"This is a test report.\",\n  \"report_id\": \"TEST-REP-001\",\n  \"report_type\": \"monitoring_summary\",\n  \"format_type\": \"pdf\",\n  \"service\": \"{{service_id}}\",\n  \"layer\": \"{{layer_id}}\",\n  \"assigned_to\": \"{{user_id}}\",\n  \"auto_resolve\": true,\n  \"auto_resolve_duration\": 2,\n  \"suppress_similar\": true,\n  \"suppression_duration\": 30\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/reports/reports/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "reports", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Report Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/reports/{{report_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "reports", "{{report_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Report",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Test Report\",\n  \"description\": \"This report has been updated.\",\n  \"status\": \"acknowledged\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/reports/reports/{{report_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "reports", "{{report_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Report",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/reports/{{report_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "reports", "{{report_id}}", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Generate Report",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"parameters\": {\"test\": \"param\"},\n  \"force\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/reports/reports/{{report_id}}/generate/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "reports", "{{report_id}}", "generate", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Download Report",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/reports/{{report_id}}/download/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "reports", "{{report_id}}", "download", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Schedule Report",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Daily Test Report Schedule\",\n  \"description\": \"Run test report daily\",\n  \"schedule_expression\": \"0 2 * * *\",\n  \"is_active\": true,\n  \"max_runtime_minutes\": 60,\n  \"detection_algorithm\": \"simple_count\",\n  \"change_threshold\": 5.0,\n  \"alert_on_changes\": true,\n  \"alert_on_errors\": true,\n  \"alert_threshold\": \"medium\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/reports/reports/{{report_id}}/schedule/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "reports", "{{report_id}}", "schedule", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Unschedule Report",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/reports/{{report_id}}/unschedule/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "reports", "{{report_id}}", "unschedule", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Run Report Now",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"parameters\": {\"test\": \"param\"}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/reports/reports/{{report_id}}/run-now/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "reports", "{{report_id}}", "run-now", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Report Actions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/reports/{{report_id}}/actions/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "reports", "{{report_id}}", "actions", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Report Notifications",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/reports/{{report_id}}/notifications/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "reports", "{{report_id}}", "notifications", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Active Reports",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/reports/active/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "reports", "active", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Critical Reports",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/reports/critical/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "reports", "critical", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Reports",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/reports/my-reports/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "reports", "my-reports", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Bulk Report Action",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"report_ids\": [\"{{report_id_1}}\", \"{{report_id_2}}\"],\n  \"action\": \"generate\",\n  \"parameters\": {\"test\": \"param\"}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/reports/reports/bulk-action/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "reports", "bulk-action", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Report Statistics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/reports/reports/statistics/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reports", "reports", "statistics", ""]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Common",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health/",
+              "host": ["{{base_url}}"],
+              "path": ["health", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Statistics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/stats/",
+              "host": ["{{base_url}}"],
+              "path": ["stats", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "API Schema",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/schema/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "schema", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Swagger UI",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/schema/swagger-ui/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "schema", "swagger-ui", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Redoc UI",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/schema/redoc/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "schema", "redoc", ""]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "auth_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "service_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "layer_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "alert_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "report_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "notification_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "assignee_user_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "alert_id_1",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "alert_id_2",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "report_id_1",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "report_id_2",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "preference_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "job_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "snapshot_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "previous_snapshot_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "result_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "rule_id",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}
