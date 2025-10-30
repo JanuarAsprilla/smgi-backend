@@ -1,0 +1,15 @@
+# deployment/kubernetes/namespace.yaml
+---
+# SMGI Backend - Kubernetes Namespace
+# Sistema de Monitoreo Geoespacial Inteligente
+# Namespace para aislar todos los recursos del SMGI Backend
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: smgi
+  labels:
+    app: smgi-backend
+    environment: development # Puede ser development, staging, production
+  annotations:
+    description: "Namespace for SMGI Backend (Sistema de Monitoreo Geoespacial Inteligente)"

@@ -1,3 +1,4 @@
+# config/settings/base.py
 """
 SMGI Backend - Base Settings
 Sistema de Monitoreo Geoespacial Inteligente
@@ -136,10 +137,19 @@ DATABASES = {
         'HOST': config('DB_HOST', default='localhost'),
         'PORT': config('DB_PORT', default='5432'),
         'CONN_MAX_AGE': 600,
-        'OPTIONS': {
-            'charset': 'utf8',
-            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
-        },
+        # --- MEJORA: Eliminar opciones específicas de MySQL para PostgreSQL ---
+        # Las siguientes opciones son específicas de MySQL y no son necesarias para PostgreSQL.
+        # Se eliminan para evitar confusiones y posibles errores.
+        # 'OPTIONS': {
+        #     'charset': 'utf8',
+        #     'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+        # },
+        # --- FIN MEJORA ---
+        # Opcional: Añadir opciones específicas de PostgreSQL si se requiere configuración avanzada
+        # 'OPTIONS': {
+        #     'connect_timeout': 10,
+        #     'sslmode': 'require', # Si se usa SSL
+        # }
     }
 }
 
@@ -152,7 +162,16 @@ CACHES = {
         'LOCATION': config('REDIS_URL', default='redis://localhost:6379/1'),
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-            'PARSER_CLASS': 'redis.connection.HiredisParser',
+            # --- MEJORA: Manejar hiredis de forma segura ---
+            # 'PARSER_CLASS': 'redis.connection.HiredisParser', # Requiere 'hiredis' instalado
+            # Si se usa hiredis, descomentar la línea anterior.
+            # Si no se usa o no está seguro, omitir esta línea.
+            # Opcional: Usar try/except para cargarlo condicionalmente
+            # try:
+            #     import hiredis
+            #     'PARSER_CLASS': 'redis.connection.HiredisParser',
+            # except ImportError:
+            #     pass # No usar hiredis
             'CONNECTION_POOL_KWARGS': {'max_connections': 50},
             'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
         },
@@ -393,7 +412,10 @@ ARCGIS_SETTINGS = {
     'MAX_RETRIES': 3,
     'RETRY_DELAY': 1,
     'USER_AGENT': 'SMGI-Backend/1.0',
-    'SUPPORTED_FORMATS': ['json', 'geojson', 'kml'],
+    # --- MEJORA: Revisar formatos soportados ---
+    # 'SUPPORTED_FORMATS': ['json', 'geojson', 'kml'], # KML no es estándar en ArcGIS REST
+    'SUPPORTED_FORMATS': ['json', 'geojson', 'csv', 'shapefile'], # Formatos más comunes
+    # --- FIN MEJORA ---
 }
 
 HEALTH_CHECK = {

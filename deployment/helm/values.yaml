@@ -1,0 +1,396 @@
+# deployment/helm/values.yaml
+---
+# SMGI Backend - Helm Chart Values
+# Sistema de Monitoreo Geoespacial Inteligente
+# Valores por defecto para despliegue en Kubernetes con Helm
+
+# --- MEJORA: Valores globales ---
+global:
+  # Namespace donde se desplegará el chart
+  namespace: "smgi"
+  # Dominio base para el servicio
+  domain: "smgi.iiap.edu.pe"
+  # Etiquetas comunes para todos los recursos
+  labels:
+    app: "smgi-backend"
+    version: "1.0.0"
+
+# --- MEJORA: Valores para la aplicación Django (web) ---
+django:
+  # Imagen del contenedor
+  image:
+    repository: "smgi/backend"
+    tag: "latest"
+    pullPolicy: "IfNotPresent"
+  
+  # Réplicas del deployment
+  replicaCount: 1
+  
+  # Puerto interno del contenedor
+  containerPort: 8000
+  
+  # Recursos
+  resources:
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+  
+  # Variables de entorno
+  env:
+    DEBUG: "False"
+    ALLOWED_HOSTS: "smgi.iiap.edu.pe,localhost,127.0.0.1"
+    SECRET_KEY: "change-me-in-production-!!!" # Debe ser sobreescrito en producción
+    DB_ENGINE: "django.contrib.gis.db.backends.postgis"
+    DB_NAME: "smgi_db"
+    DB_USER: "smgi_user"
+    DB_PASSWORD: "smgi_password" # Debe ser sobreescrito en producción
+    DB_HOST: "smgi-postgresql" # Nombre del servicio de postgres
+    DB_PORT: "5432"
+    REDIS_URL: "redis://smgi-redis-master:6379/1" # URL de Redis para caché
+    CELERY_BROKER_URL: "redis://smgi-redis-master:6379/0" # URL de Redis para Celery
+    CELERY_RESULT_BACKEND: "redis://smgi-redis-master:6379/0" # URL de Redis para resultados de Celery
+    EMAIL_BACKEND: "django.core.mail.backends.smtp.EmailBackend"
+    EMAIL_HOST: "smtp.gmail.com"
+    EMAIL_PORT: "587"
+    EMAIL_USE_TLS: "True"
+    EMAIL_HOST_USER: "" # Debe ser sobreescrito en producción
+    EMAIL_HOST_PASSWORD: "" # Debe ser sobreescrito en producción
+    DEFAULT_FROM_EMAIL: "noreply@iiap.edu.pe"
+    CORS_ALLOWED_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
+    MAX_MONITORING_LAYERS: "100"
+    MONITORING_INTERVAL_MINUTES: "15"
+    ALERT_RETENTION_DAYS: "90"
+    REPORT_RETENTION_DAYS: "365"
+    MAX_CONCURRENT_MONITORS: "10"
+    ARCGIS_REQUEST_TIMEOUT: "30"
+    CHANGE_DETECTION_THRESHOLD: "0.05"
+  
+  # Comandos y argumentos
+  command: []
+  args: []
+  
+  # Liveness y Readiness probes
+  livenessProbe:
+    httpGet:
+      path: /health/
+      port: 8000
+    initialDelaySeconds: 30
+    periodSeconds: 10
+  readinessProbe:
+    httpGet:
+      path: /health/
+      port: 8000
+    initialDelaySeconds: 5
+    periodSeconds: 5
+
+# --- MEJORA: Valores para los workers de Celery ---
+celeryWorker:
+  # Imagen del contenedor
+  image:
+    repository: "smgi/backend"
+    tag: "latest"
+    pullPolicy: "IfNotPresent"
+  
+  # Réplicas del deployment
+  replicaCount: 2
+  
+  # Colas que consumirá este worker
+  queues: "monitoring,alerts,notifications,reports,health,cleanup,default"
+  
+  # Concurrencia de workers
+  concurrency: 4
+  
+  # Recursos
+  resources:
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+  
+  # Variables de entorno (heredadas de django o sobrescritas)
+  env:
+    # Pueden sobrescribirse aquí si es necesario
+    # CELERY_WORKER_PREFETCH_MULTIPLIER: "1"
+    # CELERY_WORKER_MAX_TASKS_PER_CHILD: "1000"
+  
+  # Comandos y argumentos
+  command: ["celery", "-A", "config.celery", "worker", "--loglevel=info"]
+  args: ["-Q", "monitoring,alerts,notifications,reports,health,cleanup,default", "-c", "4"]
+
+# --- MEJORA: Valores para el scheduler de Celery (Beat) ---
+celeryBeat:
+  # Imagen del contenedor
+  image:
+    repository: "smgi/backend"
+    tag: "latest"
+    pullPolicy: "IfNotPresent"
+  
+  # Réplicas del deployment (debe ser 1 para evitar duplicados)
+  replicaCount: 1
+  
+  # Recursos
+  resources:
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+  
+  # Variables de entorno
+  env:
+    # Pueden sobrescribirse aquí si es necesario
+    # CELERY_BEAT_SCHEDULER: "django_celery_beat.schedulers:DatabaseScheduler"
+  
+  # Comandos y argumentos
+  command: ["celery", "-A", "config.celery", "beat", "--loglevel=info"]
+  args: ["--scheduler", "django_celery_beat.schedulers:DatabaseScheduler"]
+
+# --- MEJORA: Valores para PostgreSQL/PostGIS ---
+# Nota: En producción, se recomienda usar un cluster externo gestionado.
+# Estos valores son para un despliegue local/autocontenido con Bitnami PostgreSQL.
+postgres:
+  # Habilitar/deshabilitar el despliegue de PostgreSQL
+  enabled: true
+  
+  # Imagen del contenedor
+  image:
+    registry: "docker.io"
+    repository: "bitnami/postgresql"
+    tag: "15.3.0-debian-11-r7" # Compatible con PostGIS 3.3+
+    pullPolicy: "IfNotPresent"
+  
+  # Credenciales de la base de datos
+  auth:
+    postgresPassword: "postgres_admin_password" # Contraseña del usuario 'postgres'
+    username: "smgi_user"
+    password: "smgi_password" # Debe coincidir con django.env.DB_PASSWORD
+    database: "smgi_db" # Debe coincidir con django.env.DB_NAME
+  
+  # Recursos
+  resources:
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+  
+  # Persistencia
+  primary:
+    persistence:
+      enabled: true
+      storageClass: "" # Usar clase por defecto
+      size: "10Gi"
+  
+  # Configuración de PostGIS
+  # Se puede usar initdbScripts para instalar PostGIS
+  initdbScripts:
+    init_postgis.sh: |
+      #!/bin/bash
+      echo "Installing PostGIS extensions..."
+      psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+      psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "CREATE EXTENSION IF NOT EXISTS postgis_topology;"
+      echo "PostGIS extensions installed."
+
+# --- MEJORA: Valores para Redis ---
+# Nota: En producción, se recomienda usar un cluster externo gestionado.
+# Estos valores son para un despliegue local/autocontenido con Bitnami Redis.
+redis:
+  # Habilitar/deshabilitar el despliegue de Redis
+  enabled: true
+  
+  # Imagen del contenedor
+  image:
+    registry: "docker.io"
+    repository: "bitnami/redis"
+    tag: "7.0.12-debian-11-r9"
+    pullPolicy: "IfNotPresent"
+  
+  # Recursos
+  master:
+    resources:
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+      requests:
+        cpu: "250m"
+        memory: "256Mi"
+  
+  replica:
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+      requests:
+        cpu: "250m"
+        memory: "256Mi"
+  
+  # Persistencia
+  master:
+    persistence:
+      enabled: true
+      storageClass: "" # Usar clase por defecto
+      size: "2Gi"
+  
+  # Configuración
+  architecture: "replication" # Usar maestro-réplica
+  auth:
+    enabled: false # Desactivar autenticación para simplificar en desarrollo
+    password: "" # Si se activa, se debe establecer
+
+# --- MEJORA: Valores para Nginx (proxy inverso) ---
+# Nota: En producción, se puede usar un Ingress Controller externo.
+# Estos valores son para un despliegue local/autocontenido con Nginx.
+nginx:
+  # Habilitar/deshabilitar el despliegue de Nginx
+  enabled: true
+  
+  # Imagen del contenedor
+  image:
+    repository: "nginx"
+    tag: "1.25.2-alpine"
+    pullPolicy: "IfNotPresent"
+  
+  # Réplicas del deployment
+  replicaCount: 1
+  
+  # Puerto del servicio
+  service:
+    port: 80
+  
+  # Recursos
+  resources:
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+  
+  # Configuración de Nginx
+  config: |
+    events {
+        worker_connections 1024;
+    }
+    http {
+        upstream django {
+            server smgi-django-service:8000; # Nombre del servicio Django
+        }
+        server {
+            listen 80;
+            location / {
+                proxy_pass http://django;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+            }
+            location /static/ {
+                alias /usr/share/nginx/html/static/;
+            }
+            location /media/ {
+                alias /usr/share/nginx/html/media/;
+            }
+        }
+    }
+
+# --- MEJORA: Valores para el Service de Kubernetes ---
+service:
+  type: "ClusterIP" # Puede ser LoadBalancer en producción
+  port: 80
+  targetPort: 8000
+
+# --- MEJORA: Valores para el Ingress Controller ---
+ingress:
+  # Habilitar/deshabilitar el Ingress
+  enabled: false
+  
+  # Host del servicio
+  host: "smgi.iiap.edu.pe"
+  
+  # TLS
+  tls:
+    enabled: false
+    secretName: "smgi-tls-secret" # Nombre del secreto TLS
+  
+  # Reglas de enrutamiento
+  paths:
+    - path: "/"
+      pathType: "Prefix"
+      backend:
+        service:
+          name: "smgi-django-service"
+          port:
+            number: 80
+
+# --- MEJORA: Valores de persistencia para volúmenes ---
+persistence:
+  # Clase de almacenamiento por defecto
+  storageClass: ""
+  
+  # Tamaño por defecto para volúmenes
+  size: "1Gi"
+
+# --- MEJORA: Valores de autoescalado horizontal (HPA) ---
+autoscaling:
+  # Autoescalado para Django
+  django:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 80
+  
+  # Autoescalado para Celery Worker
+  celeryWorker:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 70
+
+# --- MEJORA: Valores de afinidad y tolerancia ---
+affinity: {}
+tolerations: []
+
+# --- MEJORA: Selector de nodos ---
+nodeSelector: {}
+
+# --- MEJORA: Contexto de seguridad ---
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+# --- MEJORA: Valores específicos para componentes (placeholders) ---
+# Estos valores pueden ser usados por plantillas específicas si se crean.
+monitoring:
+  interval_minutes: 15
+  max_layers: 100
+  concurrent_monitors: 10
+
+alerts:
+  retention_days: 90
+  severity_threshold: "medium"
+
+notifications:
+  smtp_host: "smtp.gmail.com"
+  smtp_port: 587
+  smtp_use_tls: true
+  smtp_user: ""
+  smtp_password: ""
+  webhook_timeout_seconds: 30
+  push_provider: "fcm" # firebase cloud messaging
+
+reports:
+  retention_days: 365
+  default_format: "pdf"
+  max_concurrent_generations: 5

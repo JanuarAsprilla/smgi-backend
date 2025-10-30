@@ -1,16 +1,40 @@
+# config/asgi.py
 """
-ASGI config for smgi project.
-
-It exposes the ASGI callable as a module-level variable named ``application``.
-
-For more information on this file, see
-https://docs.djangoproject.com/en/4.2/howto/deployment/asgi/
+SMGI Backend - ASGI Configuration
+Sistema de Monitoreo Geoespacial Inteligente
+Configuración ASGI para servir aplicaciones Django y WebSockets
 """
-
 import os
-
 from django.core.asgi import get_asgi_application
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings.development')
+# --- MEJORA: Importar routing de Channels ---
+from channels.routing import ProtocolTypeRouter, URLRouter
+from channels.auth import AuthMiddlewareStack
+from channels.sessions import SessionMiddlewareStack
+from channels.security.websocket import AllowedHostsOriginValidator
 
-application = get_asgi_application()
+# --- MEJORA: Importar rutas de WebSockets de la app notifications ---
+# Asumimos que se creará apps/notifications/routing.py
+from apps.notifications import routing as notifications_routing
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+
+# --- MEJORA: Obtener la aplicación Django ASGI estándar ---
+django_asgi_app = get_asgi_application()
+
+# --- MEJORA: Definir el ProtocolTypeRouter ---
+application = ProtocolTypeRouter({
+    # Django's ASGI application to handle traditional HTTP requests
+    "http": django_asgi_app,
+
+    # WebSocket handler
+    "websocket": AllowedHostsOriginValidator(
+        SessionMiddlewareStack(
+            AuthMiddlewareStack(
+                URLRouter(
+                    notifications_routing.websocket_urlpatterns
+                )
+            )
+        )
+    ),
+})

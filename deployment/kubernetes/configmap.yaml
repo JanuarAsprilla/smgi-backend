@@ -1,0 +1,55 @@
+# deployment/kubernetes/configmap.yaml
+---
+# SMGI Backend - Kubernetes ConfigMap
+# Sistema de Monitoreo Geoespacial Inteligente
+# Configuración no sensible para el entorno de desarrollo local en Kubernetes
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: smgi-config
+  namespace: smgi
+  labels:
+    app: smgi-backend
+    component: config
+data:
+  # --- MEJORA: Configuraciones de Django ---
+  DJANGO_SETTINGS_MODULE: "config.settings.development"
+  DEBUG: "True"
+  ALLOWED_HOSTS: "*"
+  
+  # --- MEJORA: Configuraciones de Base de Datos ---
+  DB_ENGINE: "django.contrib.gis.db.backends.postgis"
+  DB_NAME: "smgi_dev_db"
+  DB_USER: "smgi_dev_user"
+  DB_HOST: "smgi-postgresql" # Nombre del servicio de PostgreSQL en K8s
+  DB_PORT: "5432"
+  
+  # --- MEJORA: Configuraciones de Redis/Celery ---
+  REDIS_URL: "redis://smgi-redis-master:6379/1"
+  CELERY_BROKER_URL: "redis://smgi-redis-master:6379/0"
+  CELERY_RESULT_BACKEND: "redis://smgi-redis-master:6379/0"
+  
+  # --- MEJORA: Configuraciones de Email ---
+  EMAIL_BACKEND: "django.core.mail.backends.console.EmailBackend"
+  DEFAULT_FROM_EMAIL: "noreply@iiap.org.co"
+  
+  # --- MEJORA: Configuraciones de CORS ---
+  CORS_ALLOWED_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
+  
+  # --- MEJORA: Configuraciones Personalizadas de SMGI ---
+  MAX_MONITORING_LAYERS: "100"
+  MONITORING_INTERVAL_MINUTES: "15"
+  ALERT_RETENTION_DAYS: "90"
+  REPORT_RETENTION_DAYS: "365"
+  MAX_CONCURRENT_MONITORS: "10"
+  ARCGIS_REQUEST_TIMEOUT: "30"
+  CHANGE_DETECTION_THRESHOLD: "0.05"
+  
+  # --- MEJORA: Configuraciones de Seguridad (para desarrollo) ---
+  SECURE_SSL_REDIRECT: "False"
+  SESSION_COOKIE_SECURE: "False"
+  CSRF_COOKIE_SECURE: "False"
+  
+  # --- MEJORA: Configuraciones de Logging ---
+  LOG_LEVEL: "INFO" # Nivel de log por defecto
