@@ -5,14 +5,17 @@ Sistema de Monitoreo Geoespacial Inteligente
 Analizador de tendencias avanzadas para el sistema de informes
 """
 import logging
-import math
+import numpy as np
+import pandas as pd
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import timedelta
 from collections import defaultdict
-
 from django.utils import timezone
 from django.db.models import Avg, Count, Sum, Min, Max, StdDev, Variance, Q, F
 from django.utils.translation import gettext_lazy as _
+from scipy import stats
+from statsmodels.tsa.seasonal import seasonal_decompose
+from statsmodels.tsa.arima.model import ARIMA
 
 from apps.reports.models import (
     Report, GeneratedReport, ReportSchedule, ReportExecution,
@@ -30,12 +33,12 @@ logger = logging.getLogger('apps.reports.analytics.trend')
 
 class ReportTrendAnalyzer:
     """
-    Analizador de tendencias avanzadas para el sistema de informes.
+    Analizador de tendencias avanzadas para el sistema de informes
     """
 
     def __init__(self, hours: int = 24):
         """
-        Inicializa el analizador de tendencias.
+        Inicializa el analizador de tendencias
 
         Args:
             hours (int): Número de horas hacia atrás para analizar tendencias. Por defecto 24.
@@ -46,10 +49,10 @@ class ReportTrendAnalyzer:
 
     def analyze_report_volume_trend(self) -> Dict[str, Any]:
         """
-        Analiza la tendencia del volumen de informes generados.
+        Analiza la tendencia del volumen de informes generados
 
         Returns:
-            Dict[str, Any]: Diccionario con análisis de tendencia del volumen.
+            Dict[str, Any]: Diccionario con análisis de tendencia del volumen
         """
         self.logger.info(f"Analyzing report volume trend for last {self.hours} hours")
         
@@ -71,30 +74,19 @@ class ReportTrendAnalyzer:
                 self.logger.info("Not enough data points for volume trend analysis")
                 return {'trend': 'insufficient_data', 'slope': 0, 'r_squared': 0, 'data_points': len(daily_counts)}
             
+            # Convertir a DataFrame de pandas para análisis
+            df = pd.DataFrame(daily_counts)
+            df['day'] = pd.to_datetime(df['day'])
+            df.set_index('day', inplace=True)
+            
             # Calcular tendencia lineal simple (pendiente y R^2)
             # Usar mínimos cuadrados ordinarios
-            n = len(daily_counts)
-            x_vals = list(range(n)) # Días como 0, 1, 2, ...
-            y_vals = [item['count'] for item in daily_counts]
-            
-            sum_x = sum(x_vals)
-            sum_y = sum(y_vals)
-            sum_xy = sum(x * y for x, y in zip(x_vals, y_vals))
-            sum_xx = sum(x * x for x in x_vals)
+            x_vals = np.arange(len(df)) # Días como 0, 1, 2, ...
+            y_vals = df['count'].values
             
             # Pendiente (m) y ordenada al origen (b)
-            denominator = n * sum_xx - sum_x * sum_x
-            if denominator == 0:
-                slope = 0
-            else:
-                slope = (n * sum_xy - sum_x * sum_y) / denominator
-            
-            # R^2 (coeficiente de determinación)
-            y_mean = sum_y / n if n > 0 else 0
-            ss_tot = sum((y - y_mean) ** 2 for y in y_vals)
-            ss_res = sum((y - (slope * x + (sum_y - slope * sum_x) / n)) ** 2 for x, y in zip(x_vals, y_vals))
-            
-            r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+            slope, intercept, r_value, p_value, std_err = stats.linregress(x_vals, y_vals)
+            r_squared = r_value ** 2
             
             # Determinar tendencia
             if slope > 0.1:
@@ -114,7 +106,7 @@ class ReportTrendAnalyzer:
                 'slope': round(slope, 4),
                 'r_squared': round(r_squared, 4),
                 'growth_rate_percent': round(growth_rate_percent, 2),
-                'data_points': n,
+                'data_points': len(daily_counts),
                 'daily_counts': daily_counts
             }
             
@@ -127,10 +119,10 @@ class ReportTrendAnalyzer:
 
     def analyze_report_success_rate_trend(self) -> Dict[str, Any]:
         """
-        Analiza la tendencia de la tasa de éxito de generación de informes.
+        Analiza la tendencia de la tasa de éxito de generación de informes
 
         Returns:
-            Dict[str, Any]: Diccionario con análisis de tendencia de tasa de éxito.
+            Dict[str, Any]: Diccionario con análisis de tendencia de tasa de éxito
         """
         self.logger.info(f"Analyzing report success rate trend for last {self.hours} hours")
         
@@ -165,29 +157,19 @@ class ReportTrendAnalyzer:
                     rate = 100.0 # Si no hay informes, asumir 100% éxito
                 success_rates.append(rate)
             
-            # Calcular tendencia lineal simple (pendiente y R^2)
-            n = len(success_rates)
-            x_vals = list(range(n)) # Días como 0, 1, 2, ...
-            y_vals = success_rates
+            # Convertir a DataFrame de pandas para análisis
+            df = pd.DataFrame(daily_stats)
+            df['day'] = pd.to_datetime(df['day'])
+            df['success_rate'] = success_rates
+            df.set_index('day', inplace=True)
             
-            sum_x = sum(x_vals)
-            sum_y = sum(y_vals)
-            sum_xy = sum(x * y for x, y in zip(x_vals, y_vals))
-            sum_xx = sum(x * x for x in x_vals)
+            # Calcular tendencia lineal simple (pendiente y R^2)
+            x_vals = np.arange(len(df)) # Días como 0, 1, 2, ...
+            y_vals = df['success_rate'].values
             
             # Pendiente (m) y ordenada al origen (b)
-            denominator = n * sum_xx - sum_x * sum_x
-            if denominator == 0:
-                slope = 0
-            else:
-                slope = (n * sum_xy - sum_x * sum_y) / denominator
-            
-            # R^2 (coeficiente de determinación)
-            y_mean = sum_y / n if n > 0 else 0
-            ss_tot = sum((y - y_mean) ** 2 for y in y_vals)
-            ss_res = sum((y - (slope * x + (sum_y - slope * sum_x) / n)) ** 2 for x, y in zip(x_vals, y_vals))
-            
-            r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+            slope, intercept, r_value, p_value, std_err = stats.linregress(x_vals, y_vals)
+            r_squared = r_value ** 2
             
             # Determinar tendencia
             if slope > 0.1:
@@ -207,8 +189,8 @@ class ReportTrendAnalyzer:
                 'slope': round(slope, 4),
                 'r_squared': round(r_squared, 4),
                 'change_rate_percent': round(change_rate_percent, 2),
-                'data_points': n,
-                'daily_success_rates': [{'day': ds['day'], 'rate': sr} for ds, sr in zip(daily_stats, success_rates)]
+                'data_points': len(daily_stats),
+                'daily_success_rates': [{'day': ds['day'].strftime('%Y-%m-%d'), 'rate': sr} for ds, sr in zip(daily_stats, success_rates)]
             }
             
             self.logger.info(f"Report success rate trend analysis completed: {analysis}")
@@ -220,10 +202,10 @@ class ReportTrendAnalyzer:
 
     def analyze_report_generation_time_trend(self) -> Dict[str, Any]:
         """
-        Analiza la tendencia del tiempo de generación de informes.
+        Analiza la tendencia del tiempo de generación de informes
 
         Returns:
-            Dict[str, Any]: Diccionario con análisis de tendencia del tiempo de generación.
+            Dict[str, Any]: Diccionario con análisis de tendencia del tiempo de generación
         """
         self.logger.info(f"Analyzing report generation time trend for last {self.hours} hours")
         
@@ -251,33 +233,18 @@ class ReportTrendAnalyzer:
                 self.logger.info("Not enough data points for generation time trend analysis")
                 return {'trend': 'insufficient_data', 'slope': 0, 'r_squared': 0, 'data_points': len(daily_times)}
             
+            # Convertir a DataFrame de pandas para análisis
+            df = pd.DataFrame(daily_times)
+            df['day'] = pd.to_datetime(df['day'])
+            df.set_index('day', inplace=True)
+            
             # Calcular tendencia lineal simple para el tiempo promedio (pendiente y R^2)
-            n = len(daily_times)
-            x_vals = list(range(n)) # Días como 0, 1, 2, ...
-            y_vals = [item['avg_time'] for item in daily_times if item['avg_time'] is not None]
-            
-            if len(y_vals) < 2:
-                self.logger.info("Not enough valid data points for generation time trend analysis")
-                return {'trend': 'insufficient_data', 'slope': 0, 'r_squared': 0, 'data_points': len(y_vals)}
-            
-            sum_x = sum(x_vals)
-            sum_y = sum(y_vals)
-            sum_xy = sum(x * y for x, y in zip(x_vals, y_vals))
-            sum_xx = sum(x * x for x in x_vals)
+            x_vals = np.arange(len(df)) # Días como 0, 1, 2, ...
+            y_vals = df['avg_time'].fillna(0).values # Reemplazar NaN con 0
             
             # Pendiente (m) y ordenada al origen (b)
-            denominator = n * sum_xx - sum_x * sum_x
-            if denominator == 0:
-                slope = 0
-            else:
-                slope = (n * sum_xy - sum_x * sum_y) / denominator
-            
-            # R^2 (coeficiente de determinación)
-            y_mean = sum_y / n if n > 0 else 0
-            ss_tot = sum((y - y_mean) ** 2 for y in y_vals)
-            ss_res = sum((y - (slope * x + (sum_y - slope * sum_x) / n)) ** 2 for x, y in zip(x_vals, y_vals))
-            
-            r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+            slope, intercept, r_value, p_value, std_err = stats.linregress(x_vals, y_vals)
+            r_squared = r_value ** 2
             
             # Determinar tendencia
             if slope > 100: # 100 ms de cambio por día es significativo
@@ -297,7 +264,7 @@ class ReportTrendAnalyzer:
                 'slope': round(slope, 2),
                 'r_squared': round(r_squared, 4),
                 'change_rate_percent': round(change_rate_percent, 2),
-                'data_points': n,
+                'data_points': len(daily_times),
                 'daily_generation_times': daily_times
             }
             
@@ -310,10 +277,10 @@ class ReportTrendAnalyzer:
 
     def analyze_user_report_activity_trend(self) -> Dict[str, Any]:
         """
-        Analiza la tendencia de actividad de generación de informes por usuario.
+        Analiza la tendencia de actividad de generación de informes por usuario
 
         Returns:
-            Dict[str, Any]: Diccionario con análisis de tendencia de actividad por usuario.
+            Dict[str, Any]: Diccionario con análisis de tendencia de actividad por usuario
         """
         self.logger.info(f"Analyzing user report activity trend for last {self.hours} hours")
         
@@ -358,26 +325,12 @@ class ReportTrendAnalyzer:
                     r_squared = 0
                 else:
                     # Calcular tendencia lineal simple
-                    n = len(daily_counts)
-                    x_vals = list(range(n))
+                    x_vals = np.arange(len(daily_counts)) # Días como 0, 1, 2, ...
                     y_vals = [item['count'] for item in daily_counts]
                     
-                    sum_x = sum(x_vals)
-                    sum_y = sum(y_vals)
-                    sum_xy = sum(x * y for x, y in zip(x_vals, y_vals))
-                    sum_xx = sum(x * x for x in x_vals)
-                    
-                    denominator = n * sum_xx - sum_x * sum_x
-                    if denominator == 0:
-                        slope = 0
-                    else:
-                        slope = (n * sum_xy - sum_x * sum_y) / denominator
-                    
-                    y_mean = sum_y / n if n > 0 else 0
-                    ss_tot = sum((y - y_mean) ** 2 for y in y_vals)
-                    ss_res = sum((y - (slope * x + (sum_y - slope * sum_x) / n)) ** 2 for x, y in zip(x_vals, y_vals))
-                    
-                    r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+                    # Pendiente (m) y ordenada al origen (b)
+                    slope, intercept, r_value, p_value, std_err = stats.linregress(x_vals, y_vals)
+                    r_squared = r_value ** 2
                     
                     if slope > 0.1:
                         trend = 'increasing'
@@ -417,10 +370,10 @@ class ReportTrendAnalyzer:
 
     def analyze_service_report_trend(self) -> Dict[str, Any]:
         """
-        Analiza la tendencia de generación de informes por servicio/layer.
+        Analiza la tendencia de generación de informes por servicio/layer
 
         Returns:
-            Dict[str, Any]: Diccionario con análisis de tendencia por servicio/layer.
+            Dict[str, Any]: Diccionario con análisis de tendencia por servicio/layer
         """
         self.logger.info(f"Analyzing service/layer report trend for last {self.hours} hours")
         
@@ -531,13 +484,13 @@ class ReportTrendAnalyzer:
 
     def detect_anomalies_in_report_volume(self, threshold_std_dev: float = 2.0) -> Dict[str, Any]:
         """
-        Detecta anomalías (picos, caídas) en el volumen de informes generados.
+        Detecta anomalías (picos, caídas) en el volumen de informes generados
 
         Args:
             threshold_std_dev (float): Umbral de desviación estándar para detectar anomalías. Por defecto 2.0.
 
         Returns:
-            Dict[str, Any]: Diccionario con análisis de anomalías en el volumen.
+            Dict[str, Any]: Diccionario con análisis de anomalías en el volumen
         """
         self.logger.info(f"Detecting anomalies in report volume for last {self.hours} hours")
         
@@ -561,9 +514,8 @@ class ReportTrendAnalyzer:
             
             # Calcular media y desviación estándar
             counts = [item['count'] for item in daily_counts]
-            mean_count = sum(counts) / len(counts)
-            variance = sum((x - mean_count) ** 2 for x in counts) / len(counts)
-            std_dev = math.sqrt(variance)
+            mean_count = np.mean(counts)
+            std_dev = np.std(counts)
             
             # Detectar anomalías
             anomalies = []
@@ -572,7 +524,7 @@ class ReportTrendAnalyzer:
                 if z_score > threshold_std_dev:
                     anomaly_type = 'spike' if item['count'] > mean_count else 'drop'
                     anomalies.append({
-                        'day': item['day'],
+                        'day': item['day'].strftime('%Y-%m-%d'),
                         'count': item['count'],
                         'mean': round(mean_count, 2),
                         'std_dev': round(std_dev, 2),
@@ -597,13 +549,13 @@ class ReportTrendAnalyzer:
 
     def detect_anomalies_in_report_generation_time(self, threshold_std_dev: float = 2.0) -> Dict[str, Any]:
         """
-        Detecta anomalías en los tiempos de generación de informes.
+        Detecta anomalías en los tiempos de generación de informes
 
         Args:
             threshold_std_dev (float): Umbral de desviación estándar para detectar anomalías. Por defecto 2.0.
 
         Returns:
-            Dict[str, Any]: Diccionario con análisis de anomalías en tiempos de generación.
+            Dict[str, Any]: Diccionario con análisis de anomalías en tiempos de generación
         """
         self.logger.info(f"Detecting anomalies in report generation time for last {self.hours} hours")
         
@@ -625,9 +577,8 @@ class ReportTrendAnalyzer:
                 self.logger.info("Not enough valid durations for generation time anomaly detection")
                 return {'anomalies': [], 'data_points': len(durations)}
             
-            mean_duration = sum(durations) / len(durations)
-            variance = sum((x - mean_duration) ** 2 for x in durations) / len(durations)
-            std_dev = math.sqrt(variance)
+            mean_duration = np.mean(durations)
+            std_dev = np.std(durations)
             
             # Detectar anomalías
             anomalies = []
@@ -664,14 +615,14 @@ class ReportTrendAnalyzer:
 
     def forecast_report_volume(self, days_ahead: int = 7) -> Dict[str, Any]:
         """
-        (Avanzado) Predice el volumen de informes para un período futuro.
-        Usa una predicción lineal simple basada en la tendencia actual.
+        (Avanzado) Predice el volumen de informes para un período futuro
+        Usa un modelo ARIMA simple para la predicción
 
         Args:
             days_ahead (int): Número de días hacia adelante para predecir. Por defecto 7.
 
         Returns:
-            Dict[str, Any]: Diccionario con predicción de volumen.
+            Dict[str, Any]: Diccionario con predicción de volumen
         """
         self.logger.info(f"Forecasting report volume for next {days_ahead} days")
         
@@ -689,46 +640,45 @@ class ReportTrendAnalyzer:
                 .values('day', 'count')
             )
             
-            if len(daily_counts) < 2:
+            if len(daily_counts) < 10: # Necesitamos suficientes datos para ARIMA
                 self.logger.info("Not enough data points for volume forecasting")
                 return {'forecast': [], 'data_points': len(daily_counts)}
             
-            # Calcular tendencia lineal simple (pendiente y ordenada al origen)
-            n = len(daily_counts)
-            x_vals = list(range(n)) # Días como 0, 1, 2, ...
-            y_vals = [item['count'] for item in daily_counts]
+            # Convertir a Series de pandas
+            df = pd.DataFrame(daily_counts)
+            df['day'] = pd.to_datetime(df['day'])
+            df.set_index('day', inplace=True)
             
-            sum_x = sum(x_vals)
-            sum_y = sum(y_vals)
-            sum_xy = sum(x * y for x, y in zip(x_vals, y_vals))
-            sum_xx = sum(x * x for x in x_vals)
+            # Crear una serie temporal diaria completa (rellenar días sin datos con 0)
+            full_range = pd.date_range(start=df.index.min(), end=df.index.max(), freq='D')
+            ts = df.reindex(full_range, fill_value=0)['count']
             
-            # Pendiente (m) y ordenada al origen (b)
-            denominator = n * sum_xx - sum_x * sum_x
-            if denominator == 0:
-                slope = 0
-                intercept = sum_y / n if n > 0 else 0
-            else:
-                slope = (n * sum_xy - sum_x * sum_y) / denominator
-                intercept = (sum_y - slope * sum_x) / n
+            # Ajustar modelo ARIMA (p, d, q)
+            # p: número de términos autorregresivos
+            # d: número de diferencias no estacionales
+            # q: número de términos de media móvil
+            # Valores típicos para datos diarios: (1, 1, 1) o (2, 1, 2)
+            model = ARIMA(ts, order=(1, 1, 1))
+            fitted_model = model.fit()
             
-            # Generar predicción para los próximos días
-            forecast = []
-            last_day = daily_counts[-1]['day'] if daily_counts else timezone.now().date()
-            for i in range(1, days_ahead + 1):
-                predicted_count = max(0, round(slope * (n + i) + intercept)) # No negativos
-                forecast_day = last_day + timedelta(days=i)
-                forecast.append({
-                    'day': forecast_day,
-                    'predicted_count': predicted_count
-                })
+            # Generar predicción
+            forecast = fitted_model.forecast(steps=days_ahead)
+            
+            # Preparar resultados
+            last_day = ts.index[-1]
+            forecast_dates = [last_day + timedelta(days=i+1) for i in range(days_ahead)]
+            forecast_data = [
+                {'day': date.strftime('%Y-%m-%d'), 'predicted_count': int(round(count))}
+                for date, count in zip(forecast_dates, forecast)
+            ]
             
             analysis = {
-                'forecast': forecast,
-                'data_points': n,
-                'slope': round(slope, 4),
-                'intercept': round(intercept, 2),
-                'days_ahead': days_ahead
+                'forecast': forecast_data,
+                'data_points': len(ts),
+                'days_ahead': days_ahead,
+                'model_order': '(1, 1, 1)',
+                'aic': fitted_model.aic, # Criterio de información Akaike
+                'bic': fitted_model.bic  # Criterio de información Bayesiano
             }
             
             self.logger.info(f"Report volume forecast completed for next {days_ahead} days")
@@ -740,15 +690,15 @@ class ReportTrendAnalyzer:
 
     def forecast_report_generation_time(self, report_id: str, minutes_ahead: int = 60) -> Dict[str, Any]:
         """
-        (Avanzado) Predice el tiempo de generación para un informe específico.
-        Usa una predicción lineal simple basada en el historial de generación.
+        (Avanzado) Predice el tiempo de generación para un informe específico
+        Usa una regresión lineal simple basada en el historial de generación
 
         Args:
-            report_id (str): ID del informe.
+            report_id (str): ID del informe
             minutes_ahead (int): Número de minutos hacia adelante para predecir. Por defecto 60.
 
         Returns:
-            Dict[str, Any]: Diccionario con predicción de tiempo de generación.
+            Dict[str, Any]: Diccionario con predicción de tiempo de generación
         """
         self.logger.info(f"Forecasting generation time for report {report_id} for next {minutes_ahead} minutes")
         
@@ -760,12 +710,12 @@ class ReportTrendAnalyzer:
                 is_removed=False
             ).order_by('created').values('generation_duration_ms', 'created')
             
-            if report_reports.count() < 2:
+            if report_reports.count() < 5: # Necesitamos suficientes datos para regresión
                 self.logger.info(f"Not enough data points for generation time forecasting for report {report_id}")
                 return {'forecast': [], 'data_points': report_reports.count()}
             
             # Calcular tendencia lineal simple (pendiente y ordenada al origen)
-            # Usar el tiempo transcurrido desde el primer informe como variable independiente
+            # Usar minutos transcurridos desde el primer informe como variable independiente
             first_report_time = report_reports.first()['created']
             data_points = []
             for rr in report_reports:
@@ -774,27 +724,16 @@ class ReportTrendAnalyzer:
                 if duration_ms is not None:
                     data_points.append((elapsed_minutes, duration_ms))
             
-            if len(data_points) < 2:
+            if len(data_points) < 5:
                 self.logger.info(f"Not enough valid data points for generation time forecasting for report {report_id}")
                 return {'forecast': [], 'data_points': len(data_points)}
             
-            n = len(data_points)
-            x_vals = [point[0] for point in data_points] # Minutos transcurridos
-            y_vals = [point[1] for point in data_points] # Duración en ms
-            
-            sum_x = sum(x_vals)
-            sum_y = sum(y_vals)
-            sum_xy = sum(x * y for x, y in zip(x_vals, y_vals))
-            sum_xx = sum(x * x for x in x_vals)
+            x_vals = np.array([point[0] for point in data_points]) # Minutos transcurridos
+            y_vals = np.array([point[1] for point in data_points]) # Duración en ms
             
             # Pendiente (m) y ordenada al origen (b)
-            denominator = n * sum_xx - sum_x * sum_x
-            if denominator == 0:
-                slope = 0
-                intercept = sum_y / n if n > 0 else 0
-            else:
-                slope = (n * sum_xy - sum_x * sum_y) / denominator
-                intercept = (sum_y - slope * sum_x) / n
+            slope, intercept, r_value, p_value, std_err = stats.linregress(x_vals, y_vals)
+            r_squared = r_value ** 2
             
             # Generar predicción para los próximos minutos
             forecast = []
@@ -802,15 +741,16 @@ class ReportTrendAnalyzer:
             for i in range(1, minutes_ahead + 1):
                 predicted_duration_ms = max(0, round(slope * (last_elapsed_minutes + i) + intercept)) # No negativos
                 forecast.append({
-                    'minute': last_elapsed_minutes + i,
+                    'minute': int(last_elapsed_minutes + i),
                     'predicted_duration_ms': predicted_duration_ms
                 })
             
             analysis = {
                 'forecast': forecast,
-                'data_points': n,
+                'data_points': len(data_points),
                 'slope': round(slope, 4),
                 'intercept': round(intercept, 2),
+                'r_squared': round(r_squared, 4),
                 'minutes_ahead': minutes_ahead
             }
             
@@ -826,13 +766,13 @@ class ReportTrendAnalyzer:
 
 def get_report_volume_growth_rate(hours: int = 24) -> float:
     """
-    Calcula la tasa de crecimiento del volumen de informes.
+    Calcula la tasa de crecimiento del volumen de informes
 
     Args:
         hours (int): Número de horas hacia atrás. Por defecto 24.
 
     Returns:
-        float: Tasa de crecimiento como porcentaje (positivo o negativo).
+        float: Tasa de crecimiento como porcentaje (positivo o negativo)
     """
     logger.info(f"Calculating report volume growth rate for last {hours} hours")
     
@@ -873,13 +813,13 @@ def get_report_volume_growth_rate(hours: int = 24) -> float:
 
 def get_report_success_rate_growth_rate(hours: int = 24) -> float:
     """
-    Calcula la tasa de crecimiento de la tasa de éxito de informes.
+    Calcula la tasa de crecimiento de la tasa de éxito de informes
 
     Args:
         hours (int): Número de horas hacia atrás. Por defecto 24.
 
     Returns:
-        float: Tasa de crecimiento de la tasa de éxito como porcentaje.
+        float: Tasa de crecimiento de la tasa de éxito como porcentaje
     """
     logger.info(f"Calculating report success rate growth rate for last {hours} hours")
     
@@ -926,13 +866,13 @@ def get_report_success_rate_growth_rate(hours: int = 24) -> float:
 
 def get_report_generation_time_trend_slope(hours: int = 24) -> float:
     """
-    Calcula la pendiente de la tendencia del tiempo de generación de informes.
+    Calcula la pendiente de la tendencia del tiempo de generación de informes
 
     Args:
         hours (int): Número de horas hacia atrás. Por defecto 24.
 
     Returns:
-        float: Pendiente de la tendencia (ms por día).
+        float: Pendiente de la tendencia (ms por día)
     """
     logger.info(f"Calculating report generation time trend slope for last {hours} hours")
     
@@ -958,25 +898,15 @@ def get_report_generation_time_trend_slope(hours: int = 24) -> float:
             return 0.0
         
         # Calcular pendiente lineal simple
-        n = len(daily_times)
-        x_vals = list(range(n)) # Días como 0, 1, 2, ...
+        x_vals = np.arange(len(daily_times)) # Días como 0, 1, 2, ...
         y_vals = [item['avg_time'] for item in daily_times if item['avg_time'] is not None]
         
         if len(y_vals) < 2:
             logger.info("Not enough valid data points for generation time trend slope calculation")
             return 0.0
         
-        sum_x = sum(x_vals)
-        sum_y = sum(y_vals)
-        sum_xy = sum(x * y for x, y in zip(x_vals, y_vals))
-        sum_xx = sum(x * x for x in x_vals)
-        
-        # Pendiente (m)
-        denominator = n * sum_xx - sum_x * sum_x
-        if denominator == 0:
-            slope = 0.0
-        else:
-            slope = (n * sum_xy - sum_x * sum_y) / denominator
+        # Pendiente (m) y ordenada al origen (b)
+        slope, intercept, r_value, p_value, std_err = stats.linregress(x_vals, y_vals)
         
         logger.info(f"Report generation time trend slope: {slope:.2f} ms/day")
         return round(slope, 2)
@@ -988,13 +918,13 @@ def get_report_generation_time_trend_slope(hours: int = 24) -> float:
 
 def identify_seasonal_patterns(hours: int = 24 * 7) -> Dict[str, Any]: # Última semana por defecto
     """
-    Identifica patrones estacionales en la generación de informes.
+    Identifica patrones estacionales en la generación de informes
 
     Args:
-        hours (int): Número de horas hacia atrás. Por defecto 168 (7 días).
+        hours (int): Número de horas hacia atrás. Por defecto 168 (7 días)
 
     Returns:
-        Dict[str, Any]: Diccionario con patrones estacionales identificados.
+        Dict[str, Any]: Diccionario con patrones estacionales identificados
     """
     logger.info(f"Identifying seasonal patterns in report generation for last {hours} hours")
     
@@ -1063,16 +993,16 @@ def identify_seasonal_patterns(hours: int = 24 * 7) -> Dict[str, Any]: # Última
         return {'patterns': {}, 'error': str(e)}
 
 
-def detect_outliers(data: List[float], threshold_std_dev: float = 2.0) -> List[Tuple[int, float]]:
+def detect_outliers( List[float], threshold_std_dev: float = 2.0) -> List[Tuple[int, float]]:
     """
-    Detecta valores atípicos en una serie de datos.
+    Detecta valores atípicos en una serie de datos
 
     Args:
-        data (List[float]): Serie de datos numéricos.
-        threshold_std_dev (float): Umbral de desviación estándar para detectar outliers. Por defecto 2.0.
+        data (List[float]): Serie de datos numéricos
+        threshold_std_dev (float): Umbral de desviación estándar para detectar outliers. Por defecto 2.0
 
     Returns:
-        List[Tuple[int, float]]: Lista de tuplas (índice, valor) de los outliers detectados.
+        List[Tuple[int, float]]: Lista de tuplas (índice, valor) de los outliers detectados
     """
     logger.info(f"Detecting outliers in data series with threshold {threshold_std_dev} std devs")
     
@@ -1082,9 +1012,8 @@ def detect_outliers(data: List[float], threshold_std_dev: float = 2.0) -> List[T
             return []
         
         # Calcular media y desviación estándar
-        mean = sum(data) / len(data)
-        variance = sum((x - mean) ** 2 for x in data) / len(data)
-        std_dev = math.sqrt(variance) if variance > 0 else 0
+        mean = np.mean(data)
+        std_dev = np.std(data)
         
         if std_dev == 0:
             logger.info("Standard deviation is zero, no outliers detected")
@@ -1093,7 +1022,7 @@ def detect_outliers(data: List[float], threshold_std_dev: float = 2.0) -> List[T
         # Detectar outliers
         outliers = []
         for i, value in enumerate(data):
-            z_score = abs(value - mean) / std_dev
+            z_score = abs(value - mean) / std_dev if std_dev > 0 else 0
             if z_score > threshold_std_dev:
                 outliers.append((i, value))
         
@@ -1105,16 +1034,16 @@ def detect_outliers(data: List[float], threshold_std_dev: float = 2.0) -> List[T
         return []
 
 
-def calculate_correlation(x_data: List[float], y_data: List[float]) -> float:
+def calculate_correlation(x_ List[float], y_ List[float]) -> float:
     """
-    Calcula la correlación de Pearson entre dos series de datos.
+    Calcula la correlación de Pearson entre dos series de datos
 
     Args:
-        x_data (List[float]): Primera serie de datos.
-        y_data (List[float]): Segunda serie de datos.
+        x_data (List[float]): Primera serie de datos
+        y_data (List[float]): Segunda serie de datos
 
     Returns:
-        float: Coeficiente de correlación de Pearson (-1.0 a 1.0).
+        float: Coeficiente de correlación de Pearson (-1.0 a 1.0)
     """
     logger.info("Calculating Pearson correlation coefficient")
     
@@ -1123,20 +1052,8 @@ def calculate_correlation(x_data: List[float], y_data: List[float]) -> float:
             logger.info("Data series must have same length and at least 2 points")
             return 0.0
         
-        n = len(x_data)
-        sum_x = sum(x_data)
-        sum_y = sum(y_data)
-        sum_xy = sum(x * y for x, y in zip(x_data, y_data))
-        sum_xx = sum(x * x for x in x_data)
-        sum_yy = sum(y * y for y in y_data)
-        
-        numerator = n * sum_xy - sum_x * sum_y
-        denominator = math.sqrt((n * sum_xx - sum_x * sum_x) * (n * sum_yy - sum_y * sum_y))
-        
-        if denominator == 0:
-            correlation = 0.0
-        else:
-            correlation = numerator / denominator
+        # Calcular correlación de Pearson
+        correlation = np.corrcoef(x_data, y_data)[0, 1]
         
         logger.info(f"Pearson correlation coefficient calculated: {correlation:.4f}")
         return round(correlation, 4)
