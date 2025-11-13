@@ -284,3 +284,6 @@ SPECTACULAR_SETTINGS = {
     'SWAGGER_UI_FAVICON_HREF': 'SIDECAR',
     'REDOC_DIST': 'SIDECAR',
 }
+
+# Importar configuración de Spectacular
+from .spectacular import SPECTACULAR_SETTINGS

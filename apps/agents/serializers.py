@@ -30,7 +30,7 @@ class AgentCategorySerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'created_at']
     
-    def get_agent_count(self, obj):
+    def get_agent_count(self, obj) -> int:
         """Get number of agents in this category."""
         return obj.agents.filter(is_active=True, status='published').count()
 

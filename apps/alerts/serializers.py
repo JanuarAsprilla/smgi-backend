@@ -41,7 +41,7 @@ class AlertChannelSerializer(serializers.ModelSerializer):
             'configuration': {'write_only': True}
         }
     
-    def get_success_rate(self, obj):
+    def get_success_rate(self, obj) -> float:
         """Calculate success rate percentage."""
         if obj.total_sent == 0:
             return 0.0
@@ -83,11 +83,11 @@ class AlertRuleSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'trigger_count', 'last_triggered', 'created_at', 'updated_at']
     
-    def get_channel_names(self, obj):
+    def get_channel_names(self, obj) -> list:
         """Get list of channel names."""
         return [channel.name for channel in obj.channels.all()]
     
-    def get_recipient_count(self, obj):
+    def get_recipient_count(self, obj) -> int:
         """Get number of recipients."""
         return obj.recipients.count()
 
@@ -201,7 +201,7 @@ class AlertSubscriptionSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'user', 'created_at', 'updated_at']
     
-    def get_channel_names(self, obj):
+    def get_channel_names(self, obj) -> list:
         """Get list of channel names."""
         return [channel.name for channel in obj.channels.all()]
 

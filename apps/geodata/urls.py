@@ -8,7 +8,7 @@ from .views import (
     LayerViewSet,
     FeatureViewSet,
     DatasetViewSet,
-    SyncLogViewSet,
+    SyncLogViewSet
 )
 
 router = DefaultRouter()
