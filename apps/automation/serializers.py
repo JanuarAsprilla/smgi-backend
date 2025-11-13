@@ -77,7 +77,7 @@ class WorkflowSerializer(serializers.ModelSerializer):
             'updated_at'
         ]
     
-    def get_task_count(self, obj):
+    def get_task_count(self, obj) -> int:
         """Get number of tasks in this workflow."""
         return obj.tasks.filter(is_active=True).count()
 
@@ -162,7 +162,7 @@ class WorkflowExecutionSerializer(serializers.ModelSerializer):
             'created_at'
         ]
     
-    def get_progress(self, obj):
+    def get_progress(self, obj) -> float:
         """Calculate execution progress percentage."""
         if obj.tasks_total == 0:
             return 0.0

@@ -12,7 +12,6 @@ from .serializers import (
     DataSourceSerializer,
     LayerSerializer,
     FeatureSerializer,
-    FeatureGeoSerializer,
     FeatureCreateSerializer,
     DatasetSerializer,
     SyncLogSerializer,
@@ -76,30 +75,15 @@ class FeatureViewSet(viewsets.ModelViewSet):
     filterset_class = FeatureFilter
     
     def get_serializer_class(self):
-        """Use GeoJSON serializer for geojson action."""
-        if self.action == 'geojson':
-            return FeatureGeoSerializer
+        """Use create serializer for create action."""
         if self.action == 'create':
             return FeatureCreateSerializer
         return FeatureSerializer
-    
-    @action(detail=False, methods=['get'])
-    def geojson(self, request):
-        """Return features in GeoJSON format."""
-        queryset = self.filter_queryset(self.get_queryset())
-        page = self.paginate_queryset(queryset)
-        
-        if page is not None:
-            serializer = FeatureGeoSerializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-        
-        serializer = FeatureGeoSerializer(queryset, many=True)
-        return Response(serializer.data)
 
 
 class DatasetViewSet(viewsets.ModelViewSet):
     """ViewSet for Dataset model."""
-    queryset = Dataset.objects.prefetch_related('layers').all()
+    queryset = Dataset.objects.all()
     serializer_class = DatasetSerializer
     permission_classes = [IsAuthenticated, IsAnalystOrAbove]
 

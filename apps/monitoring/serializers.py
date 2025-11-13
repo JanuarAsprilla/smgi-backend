@@ -42,11 +42,11 @@ class MonitoringProjectSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
     
-    def get_monitor_count(self, obj):
+    def get_monitor_count(self, obj) -> int:
         """Get number of monitors in this project."""
         return obj.monitors.filter(is_active=True).count()
     
-    def get_detection_count(self, obj):
+    def get_detection_count(self, obj) -> int:
         """Get number of detections in this project."""
         return Detection.objects.filter(
             monitor__project=obj,
@@ -90,7 +90,7 @@ class MonitorSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'last_check', 'next_check', 'check_count', 'created_at', 'updated_at']
     
-    def get_detection_count(self, obj):
+    def get_detection_count(self, obj) -> int:
         """Get number of detections for this monitor."""
         return obj.detections.filter(is_active=True).count()
 
@@ -157,7 +157,7 @@ class DetectionSerializer(GeoFeatureModelSerializer):
         ]
         read_only_fields = ['id', 'detected_at', 'created_at']
     
-    def get_change_count(self, obj):
+    def get_change_count(self, obj) -> int:
         """Get number of change records for this detection."""
         return obj.changes.count()
 

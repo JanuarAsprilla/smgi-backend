@@ -4,7 +4,6 @@ Serializers for Geodata app.
 from rest_framework import serializers
 from rest_framework_gis.fields import GeometryField
 from .models import DataSource, Layer, Feature, Dataset, SyncLog
-from rest_framework_gis.serializers import GeoFeatureModelSerializer
 
 
 class DataSourceSerializer(serializers.ModelSerializer):
@@ -26,7 +25,6 @@ class DataSourceSerializer(serializers.ModelSerializer):
         }
     
     def get_layer_count(self, obj) -> int:
-        """Get number of layers for this data source."""
         return obj.layers.filter(is_active=True).count()
 
 
@@ -48,7 +46,6 @@ class LayerSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
     
     def get_feature_count(self, obj) -> int:
-        """Get number of features in this layer."""
         return obj.features.filter(is_active=True).count()
 
 
@@ -83,14 +80,13 @@ class DatasetSerializer(serializers.ModelSerializer):
     class Meta:
         model = Dataset
         fields = [
-            'id', 'name', 'description', 'source_type', 'file_path',
-            'metadata', 'is_active', 'created_by',
-            'created_by_username', 'created_at', 'updated_at', 'layer_count'
+            'id', 'name', 'description', 'is_public', 'metadata', 'tags',
+            'is_active', 'created_by', 'created_by_username',
+            'created_at', 'updated_at', 'layer_count'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
     
     def get_layer_count(self, obj) -> int:
-        """Get number of layers in this dataset."""
         return obj.layers.filter(is_active=True).count()
 
 
@@ -107,20 +103,3 @@ class SyncLogSerializer(serializers.ModelSerializer):
             'error_message', 'metadata'
         ]
         read_only_fields = ['id']
-        
-class FeatureGeoSerializer(GeoFeatureModelSerializer):
-    """GeoJSON serializer for Feature."""
-
-    class Meta:
-        model = Feature
-        geo_field = "geometry"
-        fields = [
-            'id',
-            'layer',
-            'feature_id',
-            'geometry',
-            'properties',
-            'is_active',
-            'created_at',
-            'updated_at'
-        ]
