@@ -1,5 +1,5 @@
 """
-Views for Geodata app - Updated with export functionality.
+Views for Geodata app.
 """
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -7,9 +7,6 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q
-from django.http import FileResponse
-import os
-
 from .models import DataSource, Layer, Feature, Dataset, SyncLog
 from .serializers import (
     DataSourceSerializer,
@@ -19,126 +16,9 @@ from .serializers import (
     DatasetSerializer,
     SyncLogSerializer,
 )
-from .serializers_export import ExportRequestSerializer
 from .filters import DataSourceFilter, LayerFilter, FeatureFilter
 from .tasks import sync_data_source
-from .exporters import ShapefileExporter, GeoJSONExporter
 from apps.users.permissions import IsAnalystOrAbove
-
-
-class ExportMixin:
-    """Mixin para agregar funcionalidad de exportación."""
-    
-    @action(detail=True, methods=['post'], url_path='export')
-    def export_data(self, request, pk=None):
-        """
-        Exporta los datos a Shapefile o GeoJSON.
-        
-        POST /api/v1/geodata/layers/{id}/export/
-        
-        Body:
-        {
-            "format": "shapefile|geojson|both",
-            "filename": "mi_capa" (opcional),
-            "crs": "EPSG:4326" (opcional)
-        }
-        """
-        serializer = ExportRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        
-        obj = self.get_object()
-        export_format = serializer.validated_data['format']
-        filename = serializer.validated_data.get('filename')
-        
-        files = []
-        
-        try:
-            # Exportar Shapefile
-            if export_format in ['shapefile', 'both']:
-                shp_exporter = ShapefileExporter(output_dir='data/exports/shapefiles')
-                
-                if hasattr(obj, 'features'):  # Es una Layer
-                    shp_path = shp_exporter.export_layer(obj, filename)
-                elif hasattr(obj, 'layers'):  # Es un Dataset
-                    shp_path = shp_exporter.export_dataset(obj, filename)
-                else:
-                    return Response({
-                        'error': 'Tipo de objeto no soportado'
-                    }, status=status.HTTP_400_BAD_REQUEST)
-                
-                files.append({
-                    'format': 'shapefile',
-                    'filename': os.path.basename(shp_path),
-                    'size': os.path.getsize(shp_path),
-                    'download_url': request.build_absolute_uri(
-                        f'/api/v1/geodata/download/{os.path.basename(shp_path)}'
-                    )
-                })
-            
-            # Exportar GeoJSON
-            if export_format in ['geojson', 'both']:
-                geojson_exporter = GeoJSONExporter(output_dir='data/exports/geojson')
-                
-                if hasattr(obj, 'features'):
-                    geojson_path = geojson_exporter.export_layer(obj, filename)
-                    
-                    files.append({
-                        'format': 'geojson',
-                        'filename': os.path.basename(geojson_path),
-                        'size': os.path.getsize(geojson_path),
-                        'download_url': request.build_absolute_uri(
-                            f'/api/v1/geodata/download/{os.path.basename(geojson_path)}'
-                        )
-                    })
-            
-            return Response({
-                'success': True,
-                'message': 'Exportación completada exitosamente',
-                'files': files
-            })
-        
-        except Exception as e:
-            return Response({
-                'success': False,
-                'message': f'Error: {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
-    @action(detail=True, methods=['get'], url_path='download/(?P<format>shapefile|geojson)')
-    def download_export(self, request, pk=None, format=None):
-        """
-        Genera y descarga archivo directamente.
-        
-        GET /api/v1/geodata/layers/{id}/download/shapefile/
-        GET /api/v1/geodata/layers/{id}/download/geojson/
-        """
-        obj = self.get_object()
-        
-        try:
-            if format == 'shapefile':
-                exporter = ShapefileExporter(output_dir='data/exports/shapefiles')
-                file_path = exporter.export_layer(obj)
-                content_type = 'application/zip'
-            else:
-                exporter = GeoJSONExporter(output_dir='data/exports/geojson')
-                file_path = exporter.export_layer(obj)
-                content_type = 'application/geo+json'
-            
-            if os.path.exists(file_path):
-                response = FileResponse(
-                    open(file_path, 'rb'),
-                    content_type=content_type
-                )
-                response['Content-Disposition'] = f'attachment; filename="{os.path.basename(file_path)}"'
-                return response
-            
-            return Response({
-                'error': 'Archivo no encontrado'
-            }, status=status.HTTP_404_NOT_FOUND)
-        
-        except Exception as e:
-            return Response({
-                'error': str(e)
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class DataSourceViewSet(viewsets.ModelViewSet):
@@ -150,9 +30,11 @@ class DataSourceViewSet(viewsets.ModelViewSet):
     filterset_class = DataSourceFilter
     
     def perform_create(self, serializer):
+        """Set created_by field when creating."""
         serializer.save(created_by=self.request.user)
     
     def perform_update(self, serializer):
+        """Set updated_by field when updating."""
         serializer.save(updated_by=self.request.user)
     
     @action(detail=True, methods=['post'])
@@ -166,8 +48,8 @@ class DataSourceViewSet(viewsets.ModelViewSet):
         }, status=status.HTTP_202_ACCEPTED)
 
 
-class LayerViewSet(ExportMixin, viewsets.ModelViewSet):
-    """ViewSet for Layer model with export functionality."""
+class LayerViewSet(viewsets.ModelViewSet):
+    """ViewSet for Layer model."""
     queryset = Layer.objects.select_related('data_source').all()
     serializer_class = LayerSerializer
     permission_classes = [IsAuthenticated]
@@ -175,6 +57,7 @@ class LayerViewSet(ExportMixin, viewsets.ModelViewSet):
     filterset_class = LayerFilter
     
     def get_queryset(self):
+        """Filter queryset based on permissions."""
         queryset = super().get_queryset()
         if not self.request.user.is_staff:
             queryset = queryset.filter(
@@ -192,13 +75,14 @@ class FeatureViewSet(viewsets.ModelViewSet):
     filterset_class = FeatureFilter
     
     def get_serializer_class(self):
+        """Use create serializer for create action."""
         if self.action == 'create':
             return FeatureCreateSerializer
         return FeatureSerializer
 
 
-class DatasetViewSet(ExportMixin, viewsets.ModelViewSet):
-    """ViewSet for Dataset model with export functionality."""
+class DatasetViewSet(viewsets.ModelViewSet):
+    """ViewSet for Dataset model."""
     queryset = Dataset.objects.all()
     serializer_class = DatasetSerializer
     permission_classes = [IsAuthenticated, IsAnalystOrAbove]

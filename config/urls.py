@@ -37,3 +37,14 @@ urlpatterns = [
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+
+# Agregar ruta para descargas
+from django.views.static import serve
+from django.conf import settings
+
+if settings.DEBUG:
+    urlpatterns += [
+        path('downloads/<path:path>', serve, {
+            'document_root': os.path.join(settings.BASE_DIR, 'data/exports'),
+        }),
+    ]

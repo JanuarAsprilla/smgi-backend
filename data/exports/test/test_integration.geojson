@@ -1,0 +1,69 @@
+{
+  "type": "FeatureCollection",
+  "name": "Test Export Layer",
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "EPSG:4326"
+    }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "id": "3",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -76.5225,
+          3.4516
+        ]
+      },
+      "properties": {
+        "feature_id": "cali",
+        "name": "Cali",
+        "population": 2227642
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "2",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -75.5636,
+          6.2476
+        ]
+      },
+      "properties": {
+        "feature_id": "medellín",
+        "name": "Medellín",
+        "population": 2508452
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "1",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -74.0721,
+          4.711
+        ]
+      },
+      "properties": {
+        "feature_id": "bogotá",
+        "name": "Bogotá",
+        "population": 7412566
+      }
+    }
+  ],
+  "metadata": {
+    "layer_name": "Test Export Layer",
+    "description": "",
+    "layer_type": "vector",
+    "geometry_type": "Point",
+    "total_features": 3,
+    "exported_at": "2025-11-20T16:12:48.728580",
+    "source": "Test Export"
+  }
+}
