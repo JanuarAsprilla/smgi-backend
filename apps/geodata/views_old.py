@@ -187,7 +187,7 @@ class ExportMixin:
                 'message': f'Error en exportación: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
-    @action(detail=True, methods=['get'], url_path='download/(?P<format>shapefile|geojson)')
+    @action(detail=True, methods=['get'], url_path='download/<str:format>')
     def download(self, request, pk=None, format=None):
         """
         Descarga directa del archivo exportado.

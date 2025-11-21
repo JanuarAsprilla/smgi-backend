@@ -1,3 +1,4 @@
+import os
 """
 URL configuration for SMGI project.
 """

@@ -1,5 +1,5 @@
 """
-Shapefile exporter usando pyshp.
+Shapefile exporter con file locking.
 """
 import os
 import shutil
@@ -11,263 +11,195 @@ from typing import Optional
 from django.contrib.gis.geos import GEOSGeometry
 import logging
 
+from apps.core.file_locking import file_lock, FileRegistry
+
 logger = logging.getLogger(__name__)
 
 
 class ShapefileExporter:
-    """Exporta datos geoespaciales a formato Shapefile."""
+    """Exporta datos geoespaciales a Shapefile con file locking."""
     
     def __init__(self, output_dir: Optional[str] = None):
-        self.output_dir = output_dir or tempfile.mkdtemp()
+        self.output_dir = output_dir or 'data/exports/shapefiles'
         os.makedirs(self.output_dir, exist_ok=True)
     
-    def export_layer(self, layer, filename: Optional[str] = None) -> str:
-        """Exporta una capa a Shapefile."""
+    def export_layer(self, layer, filename: Optional[str] = None, 
+                     user_id: Optional[int] = None) -> dict:
+        """
+        Exporta capa con file locking.
+        
+        Returns:
+            dict con información del archivo generado
+        """
         if filename is None:
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             filename = f"{layer.name.replace(' ', '_')}_{timestamp}"
         
-        logger.info(f"Exportando layer {layer.name} a shapefile")
+        # Ruta final
+        zip_path = os.path.join(self.output_dir, f"{filename}.zip")
         
-        features = layer.features.filter(is_active=True)
+        # Verificar duplicado
+        if os.path.exists(zip_path):
+            import uuid
+            filename = f"{filename}_{uuid.uuid4().hex[:8]}"
+            zip_path = os.path.join(self.output_dir, f"{filename}.zip")
         
-        if not features.exists():
-            raise ValueError(f"No hay features activos en la capa {layer.name}")
+        logger.info(f"Exportando {layer.name} con file locking...")
         
-        temp_dir = tempfile.mkdtemp()
-        shp_path = os.path.join(temp_dir, filename)
-        
-        try:
-            w = shapefile.Writer(shp_path)
+        # LOCK el archivo durante la exportación
+        with file_lock(zip_path, timeout=60):
+            features = layer.features.filter(is_active=True)
             
-            first_feature = features.first()
-            if not first_feature or not first_feature.geometry:
-                raise ValueError("No hay geometrías válidas")
+            if not features.exists():
+                raise ValueError(f"No hay features en {layer.name}")
             
-            geom = GEOSGeometry(first_feature.geometry.json)
-            geom_type = geom.geom_type.upper()
+            temp_dir = tempfile.mkdtemp(prefix='smgi_')
+            shp_path = os.path.join(temp_dir, filename)
             
-            if geom_type == 'POINT':
-                w.shapeType = shapefile.POINT
-            elif geom_type == 'LINESTRING':
-                w.shapeType = shapefile.POLYLINE
-            elif geom_type in ['POLYGON', 'MULTIPOLYGON']:
-                w.shapeType = shapefile.POLYGON
-            else:
-                w.shapeType = shapefile.POINT
-            
-            if first_feature.properties:
-                for key, value in first_feature.properties.items():
-                    if isinstance(value, int):
-                        w.field(key[:10], 'N', size=19)
-                    elif isinstance(value, float):
-                        w.field(key[:10], 'F', size=19, decimal=8)
-                    else:
-                        w.field(key[:10], 'C', size=254)
-            
-            w.field('feature_id', 'C', size=254)
-            
-            for feature in features:
-                if not feature.geometry:
-                    continue
+            try:
+                w = shapefile.Writer(shp_path)
                 
-                geom = GEOSGeometry(feature.geometry.json)
+                first = features.first()
+                geom = GEOSGeometry(first.geometry.json)
                 
                 if geom.geom_type == 'Point':
-                    w.point(geom.x, geom.y)
+                    w.shapeType = shapefile.POINT
                 elif geom.geom_type == 'LineString':
-                    coords = list(geom.coords)
-                    w.line([coords])
-                elif geom.geom_type == 'Polygon':
-                    exterior = list(geom[0].coords)
-                    w.poly([exterior])
-                elif geom.geom_type == 'MultiPolygon':
-                    if len(geom) > 0:
-                        exterior = list(geom[0][0].coords)
-                        w.poly([exterior])
-                
-                record_values = []
-                if first_feature.properties:
-                    for key in first_feature.properties.keys():
-                        value = feature.properties.get(key, '') if feature.properties else ''
-                        record_values.append(value)
-                
-                record_values.append(feature.feature_id or '')
-                w.record(*record_values)
-            
-            w.close()
-            
-            prj_path = f"{shp_path}.prj"
-            with open(prj_path, 'w') as prj:
-                if layer.srid == 4326:
-                    prj.write('GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]]')
+                    w.shapeType = shapefile.POLYLINE
                 else:
-                    prj.write(f'PROJCS["Unknown",GEOGCS["GCS_Unknown",DATUM["D_Unknown",SPHEROID["Unknown",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]]]')
-            
-            cpg_path = f"{shp_path}.cpg"
-            with open(cpg_path, 'w') as cpg:
-                cpg.write('UTF-8')
-            
-            zip_path = os.path.join(self.output_dir, f"{filename}.zip")
-            
-            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                for ext in ['.shp', '.shx', '.dbf', '.prj', '.cpg']:
-                    file_path = f"{shp_path}{ext}"
-                    if os.path.exists(file_path):
-                        zipf.write(file_path, os.path.basename(file_path))
+                    w.shapeType = shapefile.POLYGON
                 
-                self._add_metadata_file(zipf, layer, filename)
-            
-            logger.info(f"Shapefile exportado: {zip_path}")
-            return zip_path
-        
-        finally:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-    
-    def export_features(self, features, filename: str, crs: str = "EPSG:4326") -> str:
-        """Exporta features a Shapefile."""
-        logger.info(f"Exportando {features.count()} features")
-        
-        if not features.exists():
-            raise ValueError("No hay features")
-        
-        temp_dir = tempfile.mkdtemp()
-        shp_path = os.path.join(temp_dir, filename)
-        
-        try:
-            w = shapefile.Writer(shp_path)
-            w.shapeType = shapefile.POINT
-            
-            w.field('feature_id', 'C', size=254)
-            w.field('layer_id', 'N', size=19)
-            
-            first_feature = features.first()
-            if first_feature and first_feature.properties:
-                for key in list(first_feature.properties.keys())[:20]:
-                    w.field(key[:10], 'C', size=254)
-            
-            for feature in features:
-                if not feature.geometry:
-                    continue
+                if first.properties:
+                    for k, v in first.properties.items():
+                        if isinstance(v, int):
+                            w.field(k[:10], 'N', size=19)
+                        elif isinstance(v, float):
+                            w.field(k[:10], 'F', size=19, decimal=8)
+                        else:
+                            w.field(k[:10], 'C', size=254)
+                w.field('feature_id', 'C', size=254)
                 
-                geom = GEOSGeometry(feature.geometry.json)
+                for f in features:
+                    if not f.geometry:
+                        continue
+                    
+                    g = GEOSGeometry(f.geometry.json)
+                    
+                    if g.geom_type == 'Point':
+                        w.point(g.x, g.y)
+                    elif g.geom_type == 'LineString':
+                        w.line([list(g.coords)])
+                    elif g.geom_type == 'Polygon':
+                        w.poly([list(g[0].coords)])
+                    
+                    vals = []
+                    if first.properties:
+                        for k in first.properties.keys():
+                            vals.append(f.properties.get(k, '') if f.properties else '')
+                    vals.append(f.feature_id or '')
+                    w.record(*vals)
                 
-                if geom.geom_type == 'Point':
-                    w.point(geom.x, geom.y)
-                elif geom.geom_type == 'LineString':
-                    coords = list(geom.coords)
-                    w.line([coords])
-                elif geom.geom_type == 'Polygon':
-                    exterior = list(geom[0].coords)
-                    w.poly([exterior])
+                w.close()
                 
-                record_values = [feature.feature_id or '', feature.layer_id or 0]
+                # Archivos auxiliares
+                with open(f"{shp_path}.prj", 'w') as prj:
+                    prj.write('GEOGCS["WGS84",DATUM["WGS_1984",SPHEROID["WGS84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["Degree",0.0174532925199433]]')
                 
-                if first_feature and first_feature.properties:
-                    for key in list(first_feature.properties.keys())[:20]:
-                        value = feature.properties.get(key, '') if feature.properties else ''
-                        record_values.append(str(value)[:254])
+                with open(f"{shp_path}.cpg", 'w') as cpg:
+                    cpg.write('UTF-8')
                 
-                w.record(*record_values)
-            
-            w.close()
-            
-            with open(f"{shp_path}.prj", 'w') as prj:
-                prj.write('GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]]')
-            
-            with open(f"{shp_path}.cpg", 'w') as cpg:
-                cpg.write('UTF-8')
-            
-            zip_path = os.path.join(self.output_dir, f"{filename}.zip")
-            
-            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                for ext in ['.shp', '.shx', '.dbf', '.prj', '.cpg']:
-                    file_path = f"{shp_path}{ext}"
-                    if os.path.exists(file_path):
-                        zipf.write(file_path, os.path.basename(file_path))
-            
-            logger.info(f"Features exportados: {zip_path}")
-            return zip_path
-        
-        finally:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-    
-    def export_dataset(self, dataset, filename: Optional[str] = None) -> str:
-        """Exporta dataset completo."""
-        if filename is None:
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f"{dataset.name.replace(' ', '_')}_{timestamp}"
-        
-        logger.info(f"Exportando dataset {dataset.name}")
-        
-        temp_dir = tempfile.mkdtemp()
-        
-        try:
-            exported_files = []
-            
-            for layer in dataset.layers.filter(is_active=True):
-                layer_filename = f"{filename}_{layer.name.replace(' ', '_')}"
-                layer_zip = self.export_layer(layer, layer_filename)
-                
-                with zipfile.ZipFile(layer_zip, 'r') as zipf:
-                    zipf.extractall(temp_dir)
-                
-                exported_files.append(layer.name)
-            
-            final_zip = os.path.join(self.output_dir, f"{filename}_complete.zip")
-            
-            with zipfile.ZipFile(final_zip, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                for root, dirs, files in os.walk(temp_dir):
-                    for file in files:
-                        file_path = os.path.join(root, file)
-                        arcname = os.path.relpath(file_path, temp_dir)
-                        zipf.write(file_path, arcname)
-                
-                readme = self._generate_dataset_readme(dataset, exported_files)
-                zipf.writestr('README.txt', readme)
-            
-            logger.info(f"Dataset exportado: {final_zip}")
-            return final_zip
-        
-        finally:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-    
-    def _add_metadata_file(self, zipf, layer, filename):
-        metadata = f"""Shapefile Metadata
-===================
+                # Metadata
+                metadata_content = f"""Shapefile Export Metadata
+========================
 
 Layer: {layer.name}
 Description: {layer.description or 'N/A'}
 Type: {layer.get_layer_type_display()}
 Geometry: {layer.get_geometry_type_display() if layer.geometry_type else 'N/A'}
 SRID: {layer.srid}
-Created: {layer.created_at.strftime('%Y-%m-%d %H:%M:%S')}
-Exported: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Features: {features.count()}
+Exported: {datetime.now()}
 
-Data Source: {layer.data_source.name if layer.data_source else 'N/A'}
-Total Features: {layer.features.filter(is_active=True).count()}
-
-Generated by: SMGI
+Generated by: SMGI Backend
 """
-        zipf.writestr(f"{filename}_metadata.txt", metadata)
+                
+                # Crear ZIP
+                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                    for ext in ['.shp', '.shx', '.dbf', '.prj', '.cpg']:
+                        fp = f"{shp_path}{ext}"
+                        if os.path.exists(fp):
+                            zipf.write(fp, os.path.basename(fp))
+                    
+                    zipf.writestr(f"{filename}_metadata.txt", metadata_content)
+                
+                # Registrar en BD
+                file_record = FileRegistry.register_file(
+                    file_path=zip_path,
+                    category='export',
+                    user_id=user_id,
+                    metadata={
+                        'layer_id': layer.id,
+                        'layer_name': layer.name,
+                        'feature_count': features.count(),
+                        'format': 'shapefile'
+                    }
+                )
+                
+                logger.info(f"Export completado: {zip_path}")
+                
+                return {
+                    'success': True,
+                    'file_path': zip_path,
+                    'filename': os.path.basename(zip_path),
+                    'size': os.path.getsize(zip_path),
+                    'format': 'shapefile',
+                    'features_count': features.count(),
+                    'file_id': file_record.id
+                }
+                
+            except Exception as e:
+                logger.error(f"Error exportando: {e}")
+                if os.path.exists(zip_path):
+                    os.remove(zip_path)
+                raise
+                
+            finally:
+                if os.path.exists(temp_dir):
+                    shutil.rmtree(temp_dir)
     
-    def _generate_dataset_readme(self, dataset, layers):
-        readme = f"""Dataset Export
-==============
-
-Dataset: {dataset.name}
-Description: {dataset.description or 'N/A'}
-Created: {dataset.created_at.strftime('%Y-%m-%d %H:%M:%S')}
-Exported: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
-Layers:
-"""
-        for layer_name in layers:
-            readme += f"- {layer_name}\n"
+    def export_features(self, features, filename: str, crs: str = "EPSG:4326") -> dict:
+        """Exporta un conjunto de features."""
+        if features.exists():
+            return self.export_layer(features.first().layer, filename)
+        raise ValueError("No features to export")
+    
+    def export_dataset(self, dataset, filename: Optional[str] = None) -> dict:
+        """Exporta un dataset completo."""
+        if filename is None:
+            filename = f"{dataset.name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
-        readme += "\nGenerated by: SMGI\n"
-        return readme
+        temp_dir = tempfile.mkdtemp()
+        try:
+            exports = []
+            for layer in dataset.layers.filter(is_active=True):
+                result = self.export_layer(layer, f"{filename}_{layer.name.replace(' ', '_')}")
+                exports.append(result)
+            
+            # Crear ZIP con todos los exports
+            final_zip = os.path.join(self.output_dir, f"{filename}_complete.zip")
+            with zipfile.ZipFile(final_zip, 'w') as zipf:
+                for exp in exports:
+                    zipf.write(exp['file_path'], os.path.basename(exp['file_path']))
+            
+            return {
+                'success': True,
+                'file_path': final_zip,
+                'exports': exports
+            }
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
     
     def cleanup(self):
+        """Limpia el directorio de salida."""
         if self.output_dir and os.path.exists(self.output_dir):
             shutil.rmtree(self.output_dir, ignore_errors=True)

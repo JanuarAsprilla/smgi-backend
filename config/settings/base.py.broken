@@ -293,11 +293,6 @@ from .spectacular import SPECTACULAR_SETTINGS
 # ============================================================================
 
 # Agregar core a INSTALLED_APPS
-
-# ============================================================================
-# CORE APP - FILE MANAGEMENT
-# ============================================================================
-
 INSTALLED_APPS += [
     'apps.core',
 ]
@@ -324,6 +319,21 @@ CELERY_BEAT_SCHEDULE.update({
         'task': 'core.cleanup_expired_files',
         'schedule': crontab(minute=0),  # Cada hora
     },
+    'cleanup-orphaned-locks': {
+        'task': 'core.cleanup_orphaned_locks',
+        'schedule': crontab(minute=30),  # Cada hora, offset 30 min
+    },
+    'generate-storage-report': {
+        'task': 'core.generate_storage_report',
+        'schedule': crontab(hour=6, minute=0),  # Diario a las 6 AM
+    },
+})
+
+# ============================================================================
+# CORE APP - FILE MANAGEMENT
+# ============================================================================
+
+# Agregar core a INSTALLED_APPS
     'cleanup-orphaned-locks': {
         'task': 'core.cleanup_orphaned_locks',
         'schedule': crontab(minute=30),  # Cada hora, offset 30 min
