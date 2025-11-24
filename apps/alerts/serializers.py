@@ -13,7 +13,7 @@ from .models import (
 
 
 class AlertChannelSerializer(serializers.ModelSerializer):
-    """Serializer for AlertChannel model."""
+    """Serializer for AlertChannel Model."""
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
     success_rate = serializers.SerializerMethodField()
     
