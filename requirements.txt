@@ -126,3 +126,13 @@ twilio==8.10.0
 
 # Token generation
 itsdangerous==2.1.2
+
+# Email y notificaciones
+django-templated-mail==1.1.1
+djoser==2.2.0
+
+# SMS (Twilio)
+twilio==8.10.0
+
+# Token generation
+itsdangerous==2.1.2
