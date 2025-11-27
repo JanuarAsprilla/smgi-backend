@@ -488,3 +488,254 @@ class ExportMixin:
 # Actualizar LayerViewSet para incluir el mixin
 # Modificar la línea de definición de clase:
 # class LayerViewSet(ExportMixin, viewsets.ModelViewSet):
+
+
+from rest_framework.decorators import action
+from .serializers_sources import (
+    URLLayerSerializer,
+    ArcGISLayerSerializer,
+    DatabaseLayerSerializer,
+    FileLayerSerializer
+)
+from .services.url_loader import URLLayerLoader
+from .services.arcgis_loader import ArcGISLoader
+from .services.database_loader import DatabaseLoader
+
+
+class LayerViewSet(viewsets.ModelViewSet):
+    # ... código existente ...
+    
+    @action(detail=False, methods=['post'])
+    def from_url(self, request):
+        """
+        Subir capa desde URL (WMS, WFS, ArcGIS REST, GeoJSON)
+        POST /api/v1/geodata/layers/from-url/
+        """
+        serializer = URLLayerSerializer(data=request.data)
+        
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        data = serializer.validated_data
+        
+        try:
+            # Cargar según tipo de servicio
+            if data['service_type'] == 'wfs':
+                gdf = URLLayerLoader.load_wfs(
+                    data['url'],
+                    data.get('layers'),
+                    data.get('username'),
+                    data.get('password')
+                )
+            elif data['service_type'] == 'geojson':
+                gdf = URLLayerLoader.load_geojson_url(
+                    data['url'],
+                    data.get('username'),
+                    data.get('password')
+                )
+            elif data['service_type'] == 'arcgis':
+                gdf = URLLayerLoader.load_arcgis_rest(
+                    data['url'],
+                    data.get('parameters', {}).get('layer_index', 0),
+                    data.get('password')  # token
+                )
+            else:
+                return Response(
+                    {'error': f'Tipo de servicio {data["service_type"]} no implementado aún'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Crear capa
+            layer = self._create_layer_from_gdf(
+                gdf,
+                data['name'],
+                data.get('description', ''),
+                request.user
+            )
+            
+            return Response({
+                'message': f'Capa cargada exitosamente desde {data["service_type"].upper()}',
+                'layer': LayerSerializer(layer).data
+            }, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=False, methods=['post'])
+    def from_arcgis(self, request):
+        """
+        Subir capa desde ArcGIS Online/Enterprise
+        POST /api/v1/geodata/layers/from-arcgis/
+        """
+        serializer = ArcGISLayerSerializer(data=request.data)
+        
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        data = serializer.validated_data
+        
+        try:
+            # Cargar desde ArcGIS
+            if data.get('item_id'):
+                gdf = ArcGISLoader.load_from_item_id(
+                    data['item_id'],
+                    data.get('token'),
+                    data.get('layer_index', 0)
+                )
+            else:
+                gdf = ArcGISLoader.load_feature_service(
+                    data['service_url'],
+                    data.get('layer_index', 0),
+                    data.get('token')
+                )
+            
+            # Crear capa
+            layer = self._create_layer_from_gdf(
+                gdf,
+                data['name'],
+                data.get('description', ''),
+                request.user
+            )
+            
+            # Si sync está habilitado, crear tarea periódica (TODO)
+            if data.get('sync_enabled'):
+                # Implementar con Celery Beat
+                pass
+            
+            return Response({
+                'message': 'Capa cargada exitosamente desde ArcGIS',
+                'layer': LayerSerializer(layer).data
+            }, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=False, methods=['post'])
+    def from_database(self, request):
+        """
+        Subir capa desde base de datos PostGIS
+        POST /api/v1/geodata/layers/from-database/
+        """
+        serializer = DatabaseLayerSerializer(data=request.data)
+        
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        data = serializer.validated_data
+        
+        try:
+            # Cargar desde PostGIS
+            gdf = DatabaseLoader.load_from_postgis(
+                data['host'],
+                data['port'],
+                data['database'],
+                data['username'],
+                data['password'],
+                data['schema'],
+                data['table'],
+                data['geometry_column'],
+                data.get('query')
+            )
+            
+            # Crear capa
+            layer = self._create_layer_from_gdf(
+                gdf,
+                data['name'],
+                data.get('description', ''),
+                request.user
+            )
+            
+            return Response({
+                'message': 'Capa cargada exitosamente desde base de datos',
+                'layer': LayerSerializer(layer).data
+            }, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=False, methods=['post'])
+    def get_service_info(self, request):
+        """
+        Obtener información de un servicio antes de cargarlo
+        POST /api/v1/geodata/layers/get-service-info/
+        """
+        service_type = request.data.get('service_type')
+        url = request.data.get('url')
+        
+        try:
+            if service_type == 'wfs':
+                info = URLLayerLoader.get_wfs_info(url)
+            elif service_type == 'wms':
+                info = URLLayerLoader.get_wms_info(url)
+            elif service_type == 'arcgis':
+                info = ArcGISLoader.get_service_info(url, request.data.get('token'))
+            else:
+                return Response(
+                    {'error': 'Tipo de servicio no soportado'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            return Response(info)
+            
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def _create_layer_from_gdf(self, gdf, name, description, user):
+        """Crear capa y features desde GeoDataFrame"""
+        from django.contrib.gis.geos import GEOSGeometry
+        import json
+        
+        # Detectar tipo de geometría
+        geom_type = gdf.geometry.geom_type.value_counts().index[0]
+        
+        # Detectar SRID
+        srid = gdf.crs.to_epsg() if gdf.crs else 4326
+        
+        # Crear capa
+        layer = Layer.objects.create(
+            name=name,
+            description=description,
+            geometry_type=geom_type.upper(),
+            srid=srid,
+            uploaded_by=user
+        )
+        
+        # Crear features
+        from .models import Feature
+        features = []
+        
+        for idx, row in gdf.iterrows():
+            geom = row.geometry
+            properties = row.drop('geometry').to_dict()
+            
+            # Convertir geometría a GEOS
+            geom_wkt = geom.wkt
+            geos_geom = GEOSGeometry(geom_wkt, srid=srid)
+            
+            feature = Feature(
+                layer=layer,
+                geom=geos_geom,
+                properties=properties
+            )
+            features.append(feature)
+        
+        # Bulk create
+        Feature.objects.bulk_create(features, batch_size=1000)
+        
+        # Actualizar feature_count
+        layer.feature_count = len(features)
+        layer.save()
+        
+        return layer

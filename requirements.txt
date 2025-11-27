@@ -136,3 +136,10 @@ twilio==8.10.0
 
 # Token generation
 itsdangerous==2.1.2
+
+# Servicios OGC
+OWSLib==0.29.1
+
+# SQLAlchemy para PostGIS
+SQLAlchemy==2.0.23
+GeoAlchemy2==0.14.2
