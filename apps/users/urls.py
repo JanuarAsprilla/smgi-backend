@@ -8,10 +8,12 @@ from rest_framework_simplejwt.views import (
     TokenRefreshView,
     TokenVerifyView,
 )
-from .views import UserViewSet
+from .views import UserViewSet, RoleViewSet, AreaViewSet
 
 router = DefaultRouter()
-router.register(r'', UserViewSet, basename='user')
+router.register(r'users', UserViewSet, basename='user')
+router.register(r'roles', RoleViewSet, basename='role')
+router.register(r'areas', AreaViewSet, basename='area')
 
 urlpatterns = [
     # JWT Authentication
