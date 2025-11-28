@@ -11,6 +11,11 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
     SpectacularRedocView
 )
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+    TokenVerifyView,
+)
 from .api_root import api_root
 
 urlpatterns = [
@@ -24,6 +29,11 @@ urlpatterns = [
     
     # API Root
     path('api/v1/', api_root, name='api-root'),
+    
+    # Authentication (JWT)
+    path('api/v1/auth/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/v1/auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('api/v1/auth/verify/', TokenVerifyView.as_view(), name='token_verify'),
     
     # API v1 Apps
     path('api/v1/users/', include('apps.users.urls')),
@@ -41,7 +51,6 @@ if settings.DEBUG:
 
 # Agregar ruta para descargas
 from django.views.static import serve
-from django.conf import settings
 
 if settings.DEBUG:
     urlpatterns += [
