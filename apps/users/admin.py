@@ -10,6 +10,7 @@ from .models import User, UserProfile
 class UserProfileInline(admin.StackedInline):
     """Inline admin for UserProfile."""
     model = UserProfile
+    fk_name = 'user'
     can_delete = False
     verbose_name_plural = 'Perfil'
 
@@ -42,6 +43,17 @@ class UserAdmin(BaseUserAdmin):
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
     """Admin configuration for UserProfile model."""
-    list_display = ['user', 'api_key', 'last_login_ip']
-    search_fields = ['user__username', 'user__email', 'api_key']
-    readonly_fields = ['api_key', 'last_login_ip']
+    list_display = ['user', 'role', 'area', 'approval_status', 'created_at']
+    list_filter = ['approval_status', 'role', 'area', 'two_factor_enabled']
+    search_fields = ['user__username', 'user__email', 'organization', 'department']
+    readonly_fields = ['created_at', 'updated_at', 'approved_at', 'approved_by']
+    
+    fieldsets = (
+        ('Usuario', {'fields': ('user',)}),
+        ('Rol y Área', {'fields': ('role', 'area')}),
+        ('Información Profesional', {'fields': ('organization', 'department', 'position', 'phone')}),
+        ('Estado de Aprobación', {'fields': ('approval_status', 'access_justification', 'rejection_reason', 'approved_at', 'approved_by')}),
+        ('Notificaciones', {'fields': ('email_notifications', 'sms_notifications', 'push_notifications', 'notify_analysis_complete', 'notify_analysis_failed', 'notify_alerts_critical')}),
+        ('Seguridad', {'fields': ('two_factor_enabled',)}),
+        ('Metadata', {'fields': ('last_activity', 'created_at', 'updated_at')}),
+    )

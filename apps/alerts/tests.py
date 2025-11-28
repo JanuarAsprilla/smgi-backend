@@ -228,7 +228,7 @@ class AlertAPITest(APITestCase):
             'name': 'New Channel',
             'description': 'New test channel',
             'channel_type': 'webhook',
-            'configuration': {'url': 'https://example.com/webhook'\}
+            'configuration': {'url': 'https://example.com/webhook'}
         }
         response = self.client.post(url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)

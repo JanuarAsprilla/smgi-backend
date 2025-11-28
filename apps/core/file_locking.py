@@ -12,6 +12,8 @@ from pathlib import Path
 from datetime import timedelta
 from django.utils import timezone
 from django.conf import settings
+from apps.core.models import GeneratedFile
+
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +144,7 @@ class FileRegistry:
                      category: str,
                      user_id: Optional[int] = None,
                      ttl_hours: Optional[int] = None,
-                     metadata: dict = None) -> 'GeneratedFile':
+                     metadata: dict = None) -> GeneratedFile:
         """
         Registra un archivo en la base de datos.
         

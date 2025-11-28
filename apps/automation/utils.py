@@ -2,7 +2,7 @@
 Utility functions for Automation app.
 """
 from django.utils import timezone
-from datetime import timedelta
+from datetime import timedelta, datetime
 from croniter import croniter
 
 

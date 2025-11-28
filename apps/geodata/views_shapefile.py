@@ -7,7 +7,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 from django.http import HttpResponse
-from osgeo import ogr, osr
+# # # from osgeo import ogr, osr
 from datetime import datetime
 
 

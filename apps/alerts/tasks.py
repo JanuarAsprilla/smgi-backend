@@ -5,6 +5,7 @@ from celery import shared_task
 from django.utils import timezone
 from django.core.mail import send_mail
 from django.conf import settings
+from django.db import models
 from .models import Alert, AlertLog, AlertChannel, AlertRule
 import logging
 import requests

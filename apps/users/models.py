@@ -71,46 +71,6 @@ class User(AbstractUser):
         return f"{self.first_name} {self.last_name}".strip() or self.username
 
 
-class UserProfile(models.Model):
-    """
-    Extended user profile information.
-    """
-    user = models.OneToOneField(
-        User,
-        on_delete=models.CASCADE,
-        related_name='profile'
-    )
-    preferences = models.JSONField(
-        _('preferencias'),
-        default=dict,
-        blank=True
-    )
-    notification_settings = models.JSONField(
-        _('configuración de notificaciones'),
-        default=dict,
-        blank=True
-    )
-    api_key = models.CharField(
-        _('API key'),
-        max_length=100,
-        blank=True,
-        unique=True,
-        null=True
-    )
-    last_login_ip = models.GenericIPAddressField(
-        _('última IP de acceso'),
-        blank=True,
-        null=True
-    )
-    
-    class Meta:
-        verbose_name = _('perfil de usuario')
-        verbose_name_plural = _('perfiles de usuario')
-    
-    def __str__(self):
-        return f"Perfil de {self.user.username}"
-
-
 class Role(models.Model):
     """Roles predefinidos en el sistema"""
     

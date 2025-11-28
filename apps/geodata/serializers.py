@@ -97,9 +97,9 @@ class SyncLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = SyncLog
         fields = [
-            'id', 'data_source', 'data_source_name', 'sync_type',
+            'id', 'data_source', 'data_source_name',
             'status', 'started_at', 'completed_at', 'records_processed',
-            'records_added', 'records_updated', 'records_deleted',
-            'error_message', 'metadata'
+            'records_added', 'records_updated', 'records_failed',
+            'error_message', 'details'
         ]
-        read_only_fields = ['id']
+        read_only_fields = ['id', 'started_at']
