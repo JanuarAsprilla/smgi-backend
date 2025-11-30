@@ -157,8 +157,16 @@ class FileRegistry:
         
         Returns:
             Instancia de GeneratedFile
+        
+        Raises:
+            ValueError: Si la categoría es inválida
         """
         from apps.core.models import GeneratedFile
+        
+        # Validar categoría
+        valid_categories = dict(GeneratedFile.CATEGORY_CHOICES).keys()
+        if category not in valid_categories:
+            raise ValueError(f"Invalid category: {category}. Must be one of {valid_categories}")
         
         # TTL por categoría si no se especifica
         if ttl_hours is None:
@@ -184,7 +192,24 @@ class FileRegistry:
             size = os.path.getsize(file_path)
             md5_hash = FileRegistry._calculate_md5(file_path)
         
-        # Crear registro
+        # Verificar si ya existe un registro para este archivo
+        existing = GeneratedFile.objects.filter(
+            file_path=file_path,
+            deleted_at__isnull=True
+        ).first()
+        
+        if existing:
+            # Actualizar registro existente
+            existing.size = size
+            existing.hash_md5 = md5_hash
+            existing.expires_at = expires_at
+            existing.status = 'ready'
+            existing.metadata = metadata or {}
+            existing.save()
+            logger.info(f"Updated existing file record: {file_path}")
+            return existing
+        
+        # Crear nuevo registro
         file_record = GeneratedFile.objects.create(
             file_path=file_path,
             category=category,
@@ -263,6 +288,21 @@ class FileRegistry:
         
         logger.info(f"Orphaned locks cleanup: {removed} removed")
         return removed
+    
+    @staticmethod
+    def get_user_files(user_id: int, category: str = None):
+        """Obtiene archivos de un usuario."""
+        from apps.core.models import GeneratedFile
+        
+        queryset = GeneratedFile.objects.filter(
+            user_id=user_id,
+            deleted_at__isnull=True
+        )
+        
+        if category:
+            queryset = queryset.filter(category=category)
+        
+        return queryset.order_by('-created_at')
     
     @staticmethod
     def get_storage_stats():

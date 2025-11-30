@@ -4,6 +4,7 @@ Modelos core del sistema.
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
+from datetime import timedelta
 import os
 
 
@@ -112,12 +113,36 @@ class GeneratedFile(models.Model):
         """Tamaño en MB."""
         return round(self.size / 1024 / 1024, 2)
     
+    @property
+    def size_kb(self):
+        """Tamaño en KB."""
+        return round(self.size / 1024, 2)
+    
+    def exists_on_disk(self):
+        """Verifica si el archivo existe físicamente."""
+        return os.path.exists(self.file_path)
+    
+    def get_age_hours(self):
+        """Retorna edad del archivo en horas."""
+        delta = timezone.now() - self.created_at
+        return round(delta.total_seconds() / 3600, 2)
+    
+    def time_until_expiry(self):
+        """Retorna tiempo hasta expiración en horas."""
+        delta = self.expires_at - timezone.now()
+        return round(delta.total_seconds() / 3600, 2)
+    
     def mark_downloaded(self):
-        """Marca el archivo como descargado."""
-        self.download_count += 1
-        self.last_accessed = timezone.now()
-        self.status = 'downloading'
-        self.save(update_fields=['download_count', 'last_accessed', 'status'])
+        """Marca el archivo como descargado (thread-safe)."""
+        from django.db.models import F
+        
+        # Usar F() para incremento atómico
+        self.__class__.objects.filter(pk=self.pk).update(
+            download_count=F('download_count') + 1,
+            last_accessed=timezone.now(),
+            status='downloading'
+        )
+        self.refresh_from_db()
     
     def mark_ready(self):
         """Marca el archivo como listo."""
@@ -129,8 +154,57 @@ class GeneratedFile(models.Model):
         self.status = 'error'
         self.save(update_fields=['status'])
     
+    def can_be_deleted(self):
+        """Verifica si el archivo puede ser eliminado."""
+        # No eliminar si está bloqueado
+        if self.is_locked:
+            return False
+        # No eliminar si ya fue eliminado
+        if self.deleted_at:
+            return False
+        return True
+    
+    def can_be_downloaded(self):
+        """Verifica si el archivo puede ser descargado."""
+        # No descargar si expiró
+        if self.is_expired:
+            return False
+        # No descargar si ya fue eliminado
+        if self.deleted_at:
+            return False
+        # No descargar si tiene error
+        if self.status == 'error':
+            return False
+        # No descargar si aún está generándose
+        if self.status == 'generating':
+            return False
+        # Verificar que existe en disco
+        if not self.exists_on_disk():
+            return False
+        return True
+    
+    def get_download_url(self):
+        """Retorna URL relativa para descargar el archivo."""
+        from django.conf import settings
+        import os
+        
+        # Obtener ruta relativa desde MEDIA_ROOT
+        media_root = str(settings.MEDIA_ROOT)
+        if self.file_path.startswith(media_root):
+            relative_path = os.path.relpath(self.file_path, media_root)
+            return f"/media/{relative_path}"
+        return None
+    
+    def extend_expiration(self, hours: int = 24):
+        """Extiende la fecha de expiración."""
+        self.expires_at = timezone.now() + timedelta(hours=hours)
+        self.save(update_fields=['expires_at'])
+    
     def delete_file(self):
         """Elimina el archivo físico y marca como eliminado."""
+        if not self.can_be_deleted():
+            raise ValueError("File cannot be deleted (locked or already deleted)")
+        
         if os.path.exists(self.file_path):
             os.remove(self.file_path)
         

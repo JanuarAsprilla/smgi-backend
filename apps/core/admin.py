@@ -9,7 +9,7 @@ from .models import GeneratedFile
 @admin.register(GeneratedFile)
 class GeneratedFileAdmin(admin.ModelAdmin):
     list_display = [
-        'filename_display', 'category', 'status', 'size_display',
+        'filename_display', 'category', 'status_badge', 'size_display',
         'user', 'download_count', 'created_at', 'expires_at', 'is_expired_display'
     ]
     list_filter = ['category', 'status', 'created_at', 'expires_at']
@@ -53,6 +53,23 @@ class GeneratedFileAdmin(admin.ModelAdmin):
             return format_html('<span style="color: red;">●</span> Expired')
         return format_html('<span style="color: green;">●</span> Active')
     is_expired_display.short_description = 'Status'
+    
+    def status_badge(self, obj):
+        """Display status as badge."""
+        colors = {
+            'generating': 'orange',
+            'ready': 'green',
+            'downloading': 'blue',
+            'expired': 'red',
+            'error': 'darkred'
+        }
+        color = colors.get(obj.status, 'gray')
+        return format_html(
+            '<span style="background-color: {}; color: white; padding: 3px 8px; border-radius: 3px;">{}</span>',
+            color,
+            obj.get_status_display()
+        )
+    status_badge.short_description = 'Status'
     
     actions = ['delete_files', 'extend_expiration']
     
