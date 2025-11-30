@@ -82,20 +82,48 @@ def validate_task_configuration(task_type, configuration):
     Returns:
         tuple: (is_valid, error_message)
     """
+    if not isinstance(configuration, dict):
+        return False, "Configuration must be a dictionary"
+    
     required_fields = {
         'agent_execution': ['agent_id'],
         'data_sync': ['data_source_id'],
         'monitor_check': ['monitor_id'],
-        'notification': ['message'],
+        'notification': ['message', 'recipients'],
         'api_call': ['url', 'method'],
         'script': ['script'],
+        'data_transform': ['transform_type'],
     }
     
     required = required_fields.get(task_type, [])
     
+    # Check required fields
     for field in required:
         if field not in configuration or not configuration[field]:
             return False, f"Campo requerido faltante: {field}"
+    
+    # Validate specific field types
+    if task_type == 'api_call':
+        valid_methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
+        method = configuration.get('method', '').upper()
+        if method not in valid_methods:
+            return False, f"Método HTTP inválido: {method}"
+        
+        # Validate URL format
+        url = configuration.get('url', '')
+        if not url.startswith(('http://', 'https://')):
+            return False, "URL debe comenzar con http:// o https://"
+    
+    elif task_type == 'notification':
+        recipients = configuration.get('recipients', [])
+        if not isinstance(recipients, list) or len(recipients) == 0:
+            return False, "Recipients debe ser una lista no vacía"
+    
+    elif task_type == 'data_transform':
+        valid_transforms = ['filter', 'aggregate', 'sort', 'select']
+        transform_type = configuration.get('transform_type')
+        if transform_type not in valid_transforms:
+            return False, f"Tipo de transformación inválido: {transform_type}"
     
     return True, None
 

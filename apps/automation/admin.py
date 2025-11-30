@@ -187,9 +187,7 @@ class WorkflowExecutionAdmin(admin.ModelAdmin):
     
     def progress_display(self, obj):
         """Display execution progress."""
-        if obj.tasks_total == 0:
-            return "0%"
-        progress = (obj.tasks_completed / obj.tasks_total) * 100
+        progress = obj.progress_percentage
         return f"{progress:.0f}%"
     progress_display.short_description = 'Progreso'
 

@@ -49,6 +49,38 @@ class WorkflowModelTest(TestCase):
     def test_workflow_str(self):
         """Test workflow string representation."""
         self.assertEqual(str(self.workflow), 'Test Workflow')
+    
+    def test_can_execute(self):
+        """Test can_execute method."""
+        self.workflow.status = 'active'
+        self.workflow.is_active = True
+        self.assertTrue(self.workflow.can_execute())
+        
+        self.workflow.status = 'draft'
+        self.assertFalse(self.workflow.can_execute())
+        
+        self.workflow.status = 'active'
+        self.workflow.is_active = False
+        self.assertFalse(self.workflow.can_execute())
+    
+    def test_increment_stats(self):
+        """Test increment_stats method."""
+        initial_count = self.workflow.execution_count
+        initial_success = self.workflow.success_count
+        initial_failure = self.workflow.failure_count
+        
+        # Test successful execution
+        self.workflow.increment_stats(success=True)
+        self.assertEqual(self.workflow.execution_count, initial_count + 1)
+        self.assertEqual(self.workflow.success_count, initial_success + 1)
+        self.assertEqual(self.workflow.failure_count, initial_failure)
+        self.assertIsNotNone(self.workflow.last_execution)
+        
+        # Test failed execution
+        self.workflow.increment_stats(success=False)
+        self.assertEqual(self.workflow.execution_count, initial_count + 2)
+        self.assertEqual(self.workflow.success_count, initial_success + 1)
+        self.assertEqual(self.workflow.failure_count, initial_failure + 1)
 
 
 class WorkflowTaskModelTest(TestCase):
@@ -129,6 +161,37 @@ class WorkflowExecutionModelTest(TestCase):
         self.execution.completed_at = self.execution.started_at + timedelta(seconds=30)
         
         self.assertEqual(self.execution.duration, 30.0)
+    
+    def test_progress_percentage(self):
+        """Test progress percentage calculation."""
+        self.execution.tasks_total = 10
+        self.execution.tasks_completed = 5
+        self.assertEqual(self.execution.progress_percentage, 50.0)
+        
+        self.execution.tasks_total = 0
+        self.assertEqual(self.execution.progress_percentage, 0.0)
+    
+    def test_can_cancel(self):
+        """Test can_cancel method."""
+        self.execution.status = 'pending'
+        self.assertTrue(self.execution.can_cancel())
+        
+        self.execution.status = 'running'
+        self.assertTrue(self.execution.can_cancel())
+        
+        self.execution.status = 'completed'
+        self.assertFalse(self.execution.can_cancel())
+        
+        self.execution.status = 'failed'
+        self.assertFalse(self.execution.can_cancel())
+    
+    def test_can_retry(self):
+        """Test can_retry method."""
+        self.execution.status = 'failed'
+        self.assertTrue(self.execution.can_retry())
+        
+        self.execution.status = 'completed'
+        self.assertFalse(self.execution.can_retry())
 
 
 class WorkflowAPITest(APITestCase):
@@ -262,6 +325,46 @@ class AutomationRuleModelTest(TestCase):
     def test_rule_str(self):
         """Test rule string representation."""
         self.assertEqual(str(self.rule), 'Test Rule')
+    
+    def test_is_throttled(self):
+        """Test is_throttled method."""
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        # No throttle configured
+        self.rule.throttle_minutes = 0
+        self.assertFalse(self.rule.is_throttled())
+        
+        # Not triggered yet
+        self.rule.throttle_minutes = 10
+        self.rule.last_triggered = None
+        self.assertFalse(self.rule.is_throttled())
+        
+        # Recently triggered (within throttle period)
+        self.rule.last_triggered = timezone.now() - timedelta(minutes=5)
+        self.assertTrue(self.rule.is_throttled())
+        
+        # Triggered outside throttle period
+        self.rule.last_triggered = timezone.now() - timedelta(minutes=15)
+        self.assertFalse(self.rule.is_throttled())
+    
+    def test_can_trigger(self):
+        """Test can_trigger method."""
+        self.rule.status = 'active'
+        self.rule.is_active = True
+        self.rule.throttle_minutes = 0
+        self.assertTrue(self.rule.can_trigger())
+        
+        self.rule.status = 'draft'
+        self.assertFalse(self.rule.can_trigger())
+    
+    def test_increment_trigger(self):
+        """Test increment_trigger method."""
+        initial_count = self.rule.trigger_count
+        
+        self.rule.increment_trigger()
+        self.assertEqual(self.rule.trigger_count, initial_count + 1)
+        self.assertIsNotNone(self.rule.last_triggered)
 
 
 class WorkflowScheduleModelTest(TestCase):

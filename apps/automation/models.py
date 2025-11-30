@@ -2,6 +2,7 @@
 Models for Automation app.
 """
 from django.db import models
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from apps.users.models import User
 from apps.geodata.models import Layer, DataSource
@@ -157,7 +158,21 @@ class Workflow(BaseModel):
         """Calculate success rate percentage."""
         if self.execution_count == 0:
             return 0.0
-        return (self.success_count / self.execution_count) * 100
+        return round((self.success_count / self.execution_count) * 100, 2)
+    
+    def can_execute(self):
+        """Check if workflow can be executed."""
+        return self.status == 'active' and self.is_active
+    
+    def increment_stats(self, success=True):
+        """Increment execution statistics."""
+        self.execution_count += 1
+        if success:
+            self.success_count += 1
+        else:
+            self.failure_count += 1
+        self.last_execution = timezone.now()
+        self.save(update_fields=['execution_count', 'success_count', 'failure_count', 'last_execution'])
 
 
 class WorkflowTask(BaseModel):
@@ -354,8 +369,23 @@ class WorkflowExecution(BaseModel):
         """Calculate execution duration in seconds."""
         if self.started_at and self.completed_at:
             delta = self.completed_at - self.started_at
-            return delta.total_seconds()
+            return round(delta.total_seconds(), 2)
         return None
+    
+    @property
+    def progress_percentage(self):
+        """Calculate execution progress percentage."""
+        if self.tasks_total == 0:
+            return 0.0
+        return round((self.tasks_completed / self.tasks_total) * 100, 2)
+    
+    def can_cancel(self):
+        """Check if execution can be cancelled."""
+        return self.status in ['pending', 'running']
+    
+    def can_retry(self):
+        """Check if execution can be retried."""
+        return self.status == 'failed'
 
 
 class TaskExecution(models.Model):
@@ -438,7 +468,7 @@ class TaskExecution(models.Model):
         """Calculate task execution duration in seconds."""
         if self.started_at and self.completed_at:
             delta = self.completed_at - self.started_at
-            return delta.total_seconds()
+            return round(delta.total_seconds(), 2)
         return None
 
 
@@ -543,6 +573,24 @@ class AutomationRule(BaseModel):
     
     def __str__(self):
         return self.name
+    
+    def is_throttled(self):
+        """Check if rule is currently throttled."""
+        if self.throttle_minutes == 0 or not self.last_triggered:
+            return False
+        
+        time_since_last = timezone.now() - self.last_triggered
+        return time_since_last.total_seconds() < self.throttle_minutes * 60
+    
+    def can_trigger(self):
+        """Check if rule can be triggered."""
+        return self.status == 'active' and self.is_active and not self.is_throttled()
+    
+    def increment_trigger(self):
+        """Increment trigger count and update timestamp."""
+        self.trigger_count += 1
+        self.last_triggered = timezone.now()
+        self.save(update_fields=['trigger_count', 'last_triggered'])
 
 
 class WorkflowSchedule(BaseModel):

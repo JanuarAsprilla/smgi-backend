@@ -40,6 +40,7 @@ class WorkflowSerializer(serializers.ModelSerializer):
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
     task_count = serializers.SerializerMethodField()
     success_rate = serializers.ReadOnlyField()
+    can_execute = serializers.SerializerMethodField()
     
     class Meta:
         model = Workflow
@@ -66,6 +67,7 @@ class WorkflowSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
             'task_count',
+            'can_execute',
         ]
         read_only_fields = [
             'id',
@@ -80,6 +82,10 @@ class WorkflowSerializer(serializers.ModelSerializer):
     def get_task_count(self, obj) -> int:
         """Get number of tasks in this workflow."""
         return obj.tasks.filter(is_active=True).count()
+    
+    def get_can_execute(self, obj) -> bool:
+        """Check if workflow can be executed."""
+        return obj.can_execute()
 
 
 class WorkflowDetailSerializer(WorkflowSerializer):
@@ -164,9 +170,7 @@ class WorkflowExecutionSerializer(serializers.ModelSerializer):
     
     def get_progress(self, obj) -> float:
         """Calculate execution progress percentage."""
-        if obj.tasks_total == 0:
-            return 0.0
-        return round((obj.tasks_completed / obj.tasks_total) * 100, 2)
+        return obj.progress_percentage
 
 
 class WorkflowExecutionDetailSerializer(WorkflowExecutionSerializer):
@@ -181,6 +185,8 @@ class AutomationRuleSerializer(serializers.ModelSerializer):
     """Serializer for AutomationRule model."""
     workflow_name = serializers.CharField(source='workflow.name', read_only=True)
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
+    can_trigger = serializers.SerializerMethodField()
+    is_throttled = serializers.SerializerMethodField()
     
     class Meta:
         model = AutomationRule
@@ -204,8 +210,18 @@ class AutomationRuleSerializer(serializers.ModelSerializer):
             'created_by_username',
             'created_at',
             'updated_at',
+            'can_trigger',
+            'is_throttled',
         ]
         read_only_fields = ['id', 'trigger_count', 'last_triggered', 'created_at', 'updated_at']
+    
+    def get_can_trigger(self, obj) -> bool:
+        """Check if rule can be triggered."""
+        return obj.can_trigger()
+    
+    def get_is_throttled(self, obj) -> bool:
+        """Check if rule is currently throttled."""
+        return obj.is_throttled()
 
 
 class WorkflowScheduleSerializer(serializers.ModelSerializer):

@@ -74,7 +74,7 @@ class WorkflowViewSet(viewsets.ModelViewSet):
         """Execute a workflow manually."""
         workflow = self.get_object()
         
-        if workflow.status != 'active':
+        if not workflow.can_execute():
             return Response(
                 {'error': 'Solo se pueden ejecutar workflows activos'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -139,6 +139,13 @@ class WorkflowViewSet(viewsets.ModelViewSet):
     def clone(self, request, pk=None):
         """Clone a workflow."""
         workflow = self.get_object()
+        
+        # Validate workflow has tasks
+        if not workflow.tasks.exists():
+            return Response(
+                {'error': 'No se puede clonar un workflow sin tareas'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         # Create a copy
         workflow_copy = Workflow.objects.create(
@@ -232,7 +239,7 @@ class WorkflowExecutionViewSet(viewsets.ModelViewSet):
         """Cancel a running execution."""
         execution = self.get_object()
         
-        if execution.status not in ['pending', 'running']:
+        if not execution.can_cancel():
             return Response(
                 {'error': 'Solo se pueden cancelar ejecuciones pendientes o en ejecución'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -254,7 +261,7 @@ class WorkflowExecutionViewSet(viewsets.ModelViewSet):
         """Retry a failed execution."""
         execution = self.get_object()
         
-        if execution.status != 'failed':
+        if not execution.can_retry():
             return Response(
                 {'error': 'Solo se pueden reintentar ejecuciones fallidas'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -287,7 +294,7 @@ class AutomationRuleViewSet(viewsets.ModelViewSet):
     """
     queryset = AutomationRule.objects.select_related('workflow').all()
     serializer_class = AutomationRuleSerializer
-    permission_classes = [IsAuthenticated, IsAnalystOrAbove]
+    permission_classes = [IsAuthenticated, IsDeveloperOrAbove]
     filter_backends = [DjangoFilterBackend]
     filterset_class = AutomationRuleFilter
     
@@ -313,6 +320,14 @@ class AutomationRuleViewSet(viewsets.ModelViewSet):
     def activate(self, request, pk=None):
         """Activate a rule."""
         rule = self.get_object()
+        
+        # Validate workflow is active
+        if not rule.workflow.can_execute():
+            return Response(
+                {'error': 'El workflow asociado no está activo'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
         rule.status = 'active'
         rule.save()
         

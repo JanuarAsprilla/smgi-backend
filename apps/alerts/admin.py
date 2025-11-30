@@ -58,7 +58,7 @@ class AlertChannelAdmin(admin.ModelAdmin):
 @admin.register(AlertRule)
 class AlertRuleAdmin(admin.ModelAdmin):
     """Admin configuration for AlertRule model."""
-    list_display = ['name', 'severity_badge', 'trigger_type', 'is_enabled', 'is_throttled_display', 'trigger_count', 'last_triggered']
+    list_display = ['name', 'severity_badge', 'trigger_type', 'is_enabled', 'throttled_badge', 'trigger_count', 'last_triggered']
     list_filter = ['severity', 'trigger_type', 'is_enabled', 'is_active', 'created_at']
     search_fields = ['name', 'description']
     readonly_fields = ['trigger_count', 'last_triggered', 'created_by', 'updated_by', 'created_at', 'updated_at']
@@ -108,6 +108,17 @@ class AlertRuleAdmin(admin.ModelAdmin):
             obj.get_severity_display()
         )
     severity_badge.short_description = 'Severidad'
+    
+    def throttled_badge(self, obj):
+        """Display throttled status as badge."""
+        if obj.is_throttled():
+            return format_html(
+                '<span style="background-color: orange; color: white; padding: 3px 10px; border-radius: 3px;">⏸ Throttled</span>'
+            )
+        return format_html(
+            '<span style="background-color: green; color: white; padding: 3px 10px; border-radius: 3px;">✓ Ready</span>'
+        )
+    throttled_badge.short_description = 'Estado'
 
 
 @admin.register(Alert)

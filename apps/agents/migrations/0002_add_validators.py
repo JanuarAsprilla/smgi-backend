@@ -1,6 +1,7 @@
 # Generated migration to add validators to Agent model
 
 from django.db import migrations, models
+from django.core import validators as django_validators
 import apps.agents.validators
 
 
@@ -49,8 +50,8 @@ class Migration(migrations.Migration):
                 choices=[(1, 1), (2, 2), (3, 3), (4, 4), (5, 5)],
                 help_text='Calificación de 1 a 5 estrellas',
                 validators=[
-                    models.validators.MinValueValidator(1),
-                    models.validators.MaxValueValidator(5)
+                    django_validators.MinValueValidator(1),
+                    django_validators.MaxValueValidator(5)
                 ],
                 verbose_name='calificación'
             ),

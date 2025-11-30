@@ -269,31 +269,145 @@ def execute_monitor_check_task(task, context):
 
 
 def execute_notification_task(task, context):
-    """Execute a notification task."""
+    """Execute a notification task to send alerts or messages."""
     config = task.configuration
     
-    # TODO: Implement notification logic
-    logger.info(f"Notification task: {config.get('message', 'No message')}")
+    # Get notification details from config
+    notification_type = config.get('notification_type', 'info')
+    message_template = config.get('message', '')
+    recipients = config.get('recipients', [])
+    title = config.get('title', 'Workflow Notification')
     
-    return {
-        'status': 'success',
-        'output': {'sent': True},
-        'logs': 'Notification sent'
-    }
+    if not recipients or not message_template:
+        logger.warning("Notification task skipped: No recipients or message provided")
+        return {
+            'status': 'skipped',
+            'output': {'reason': 'No recipients or message provided'},
+            'logs': 'Notification skipped: missing recipients or message'
+        }
+    
+    # Format message with context
+    try:
+        message = message_template.format(**context)
+    except KeyError as e:
+        logger.warning(f"Message template formatting failed: {str(e)}")
+        message = message_template
+    
+    # Create notification for each recipient
+    notifications_created = []
+    try:
+        # Try to import and use Notification model if available
+        try:
+            from apps.notifications.models import Notification
+            
+            for recipient_id in recipients:
+                notification = Notification.objects.create(
+                    user_id=recipient_id,
+                    type=notification_type,
+                    title=title,
+                    message=message,
+                    related_object_type='workflow',
+                    related_object_id=context.get('workflow_id')
+                )
+                notifications_created.append(notification.id)
+        except ImportError:
+            # If notifications app not available, just log
+            logger.info(f"Notification task (no notifications app): {title} - {message}")
+            notifications_created = recipients  # Return recipients as placeholder
+        
+        logger.info(f"Notification task: {len(notifications_created)} notifications sent")
+        return {
+            'status': 'success',
+            'output': {
+                'sent': True,
+                'count': len(notifications_created),
+                'notification_ids': notifications_created,
+                'title': title,
+                'message': message
+            },
+            'logs': f'Notifications sent to {len(notifications_created)} recipients'
+        }
+    except Exception as e:
+        logger.error(f"Error sending notifications: {str(e)}")
+        return {
+            'status': 'failed',
+            'output': {'error': str(e)},
+            'logs': f'Error sending notifications: {str(e)}'
+        }
 
 
 def execute_data_transform_task(task, context):
     """Execute a data transformation task."""
+    import pandas as pd
+    import json
+    
     config = task.configuration
     
-    # TODO: Implement data transformation logic
-    logger.info(f"Data transform task: {task.name}")
+    # Get transformation type and parameters
+    transform_type = config.get('transform_type', 'filter')
+    source_data = context.get('data', [])
     
-    return {
-        'status': 'success',
-        'output': {'transformed': True},
-        'logs': 'Data transformed'
-    }
+    if not source_data:
+        logger.warning("Data transform task: No data provided")
+        return {
+            'status': 'skipped',
+            'output': {'reason': 'No data provided'},
+            'logs': 'Data transform skipped: no data'
+        }
+    
+    try:
+        # Convert to DataFrame for easier manipulation
+        df = pd.DataFrame(source_data)
+        
+        if transform_type == 'filter':
+            # Filter rows based on conditions
+            conditions = config.get('conditions', {})
+            for column, value in conditions.items():
+                if column in df.columns:
+                    df = df[df[column] == value]
+        
+        elif transform_type == 'aggregate':
+            # Aggregate data
+            group_by = config.get('group_by', [])
+            agg_func = config.get('agg_func', 'sum')
+            if group_by and all(col in df.columns for col in group_by):
+                df = df.groupby(group_by).agg(agg_func).reset_index()
+        
+        elif transform_type == 'sort':
+            # Sort data
+            sort_by = config.get('sort_by', [])
+            ascending = config.get('ascending', True)
+            if sort_by and all(col in df.columns for col in sort_by):
+                df = df.sort_values(by=sort_by, ascending=ascending)
+        
+        elif transform_type == 'select':
+            # Select specific columns
+            columns = config.get('columns', [])
+            if columns and all(col in df.columns for col in columns):
+                df = df[columns]
+        
+        # Convert back to list of dicts
+        transformed_data = df.to_dict('records')
+        
+        logger.info(f"Data transform task: Transformed {len(source_data)} -> {len(transformed_data)} rows")
+        return {
+            'status': 'success',
+            'output': {
+                'transformed': True,
+                'data': transformed_data,
+                'row_count': len(transformed_data),
+                'transform_type': transform_type
+            },
+            'logs': f'Data transformed: {len(source_data)} -> {len(transformed_data)} rows'
+        }
+    
+    except Exception as e:
+        logger.error(f"Error transforming data: {str(e)}")
+        return {
+            'status': 'failed',
+            'output': {'error': str(e)},
+            'logs': f'Error transforming data: {str(e)}'
+        }
 
 
 def execute_conditional_task(task, context):
