@@ -136,6 +136,34 @@ class DataSource(BaseModel):
     
     def __str__(self):
         return self.name
+    
+    def can_sync(self):
+        """Verifica si la fuente puede sincronizarse."""
+        return self.status == self.Status.ACTIVE and self.is_active
+    
+    def is_sync_needed(self):
+        """Verifica si es necesario sincronizar (basado en intervalo)."""
+        if not self.can_sync() or self.refresh_interval == 0:
+            return False
+        
+        if not self.last_sync:
+            return True
+        
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        next_sync = self.last_sync + timedelta(minutes=self.refresh_interval)
+        return timezone.now() >= next_sync
+    
+    def get_connection_info(self):
+        """Retorna información de conexión ofuscada."""
+        info = {
+            'type': self.source_type,
+            'url': self.url,
+            'status': self.status,
+            'has_credentials': bool(self.credentials)
+        }
+        return info
 
 
 class Layer(BaseModel):
@@ -265,6 +293,22 @@ class Layer(BaseModel):
         """Actualiza el conteo de features."""
         self.feature_count = self.features.filter(is_active=True).count()
         self.save(update_fields=['feature_count'])
+    
+    def get_bounds(self):
+        """Retorna los límites de la capa en formato [minx, miny, maxx, maxy]."""
+        if self.extent:
+            return list(self.extent.extent)
+        return None
+    
+    def has_data(self):
+        """Verifica si la capa tiene features."""
+        return self.feature_count > 0
+    
+    def get_size_mb(self):
+        """Retorna el tamaño del archivo en MB."""
+        if self.file_size:
+            return round(self.file_size / 1024 / 1024, 2)
+        return 0
 
 
 class Feature(BaseModel):
@@ -430,3 +474,17 @@ class SyncLog(models.Model):
     def __str__(self):
         source = self.data_source.name if self.data_source else (self.layer.name if self.layer else 'N/A')
         return f"Sync {source} - {self.status} ({self.started_at})"
+    
+    def get_duration_seconds(self):
+        """Retorna la duración de la sincronización en segundos."""
+        if self.started_at and self.completed_at:
+            delta = self.completed_at - self.started_at
+            return round(delta.total_seconds(), 2)
+        return None
+    
+    def get_success_rate(self):
+        """Retorna el porcentaje de éxito de los registros procesados."""
+        if self.records_processed == 0:
+            return 0.0
+        successful = self.records_added + self.records_updated
+        return round((successful / self.records_processed) * 100, 2)

@@ -5,13 +5,60 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from django.db.models import Q
+from .models import Notification
+from .serializers import NotificationSerializer, NotificationPreferencesSerializer
 from .services import notification_service
 
 
-class NotificationViewSet(viewsets.ViewSet):
+class NotificationViewSet(viewsets.ModelViewSet):
     """ViewSet para notificaciones"""
     
+    serializer_class = NotificationSerializer
     permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        """Get notifications for the current user."""
+        return Notification.objects.filter(user=self.request.user)
+    
+    @action(detail=True, methods=['post'])
+    def mark_read(self, request, pk=None):
+        """
+        Mark a notification as read.
+        POST /api/v1/notifications/{id}/mark-read/
+        """
+        notification = self.get_object()
+        notification.mark_as_read()
+        
+        return Response({
+            'message': 'Notificación marcada como leída',
+            'notification': NotificationSerializer(notification).data
+        })
+    
+    @action(detail=False, methods=['post'])
+    def mark_all_read(self, request):
+        """
+        Mark all notifications as read.
+        POST /api/v1/notifications/mark-all-read/
+        """
+        from django.utils import timezone
+        updated = self.get_queryset().filter(is_read=False).update(
+            is_read=True,
+            read_at=timezone.now()
+        )
+        
+        return Response({
+            'message': f'{updated} notificaciones marcadas como leídas'
+        })
+    
+    @action(detail=False, methods=['get'])
+    def unread_count(self, request):
+        """
+        Get count of unread notifications.
+        GET /api/v1/notifications/unread-count/
+        """
+        count = self.get_queryset().filter(is_read=False).count()
+        return Response({'unread_count': count})
     
     @action(detail=False, methods=['post'])
     def test_email(self, request):
