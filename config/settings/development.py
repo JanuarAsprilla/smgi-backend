@@ -22,6 +22,12 @@ DATABASES = {
     }
 }
 
+# Aumentar timeout para archivos grandes
+DATA_UPLOAD_MAX_MEMORY_SIZE = 524288000  # 500MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 524288000  # 500MB
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000
+
+
 # CORS settings for development
 CORS_ALLOW_ALL_ORIGINS = True
 

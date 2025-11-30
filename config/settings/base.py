@@ -333,3 +333,31 @@ CELERY_BEAT_SCHEDULE.update({
         'schedule': crontab(hour=6, minute=0),  # Diario a las 6 AM
     },
 })
+
+# ============================================================================
+# CONFIGURACIÓN PARA ARCHIVOS GRANDES (1GB+)
+# ============================================================================
+
+# Aumentar límites de upload
+DATA_UPLOAD_MAX_MEMORY_SIZE = 1024 * 1024 * 1024 * 2  # 2GB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 1024 * 1024 * 1024 * 2  # 2GB
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000
+
+# Configuración de archivos temporales
+FILE_UPLOAD_TEMP_DIR = BASE_DIR / 'data' / 'uploads' / 'temp'
+FILE_UPLOAD_HANDLERS = [
+    'django.core.files.uploadhandler.TemporaryFileUploadHandler',
+]
+
+# Celery - Ajustes para tareas largas
+CELERY_TASK_TIME_LIMIT = 60 * 60 * 2  # 2 horas máximo por tarea
+CELERY_TASK_SOFT_TIME_LIMIT = 60 * 60  # 1 hora soft limit
+CELERY_WORKER_MAX_MEMORY_PER_CHILD = 1024 * 1024  # 1GB, reiniciar worker si excede
+CELERY_TASK_ACKS_LATE = True  # Confirmar tarea solo cuando termina
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # Procesar una tarea a la vez
+
+# Umbral para procesamiento asíncrono (archivos > 50MB van a Celery)
+GEODATA_ASYNC_THRESHOLD = 50 * 1024 * 1024  # 50MB
+
+# Directorio para uploads grandes
+GEODATA_UPLOAD_DIR = BASE_DIR / 'data' / 'uploads'

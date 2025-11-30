@@ -1,8 +1,11 @@
 """
 Serializers for Geodata app.
+SMGI - Sistema de Monitoreo Geoespacial Inteligente
 """
 from rest_framework import serializers
 from rest_framework_gis.fields import GeometryField
+from django.contrib.gis.geos import GEOSGeometry
+import json
 from .models import DataSource, Layer, Feature, Dataset, SyncLog
 
 
@@ -30,23 +33,30 @@ class DataSourceSerializer(serializers.ModelSerializer):
 
 class LayerSerializer(serializers.ModelSerializer):
     """Serializer for Layer model."""
-    data_source_name = serializers.CharField(source='data_source.name', read_only=True)
+    data_source_name = serializers.CharField(source='data_source.name', read_only=True, allow_null=True)
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
-    feature_count = serializers.SerializerMethodField()
     extent = GeometryField(required=False, allow_null=True)
     
     class Meta:
         model = Layer
         fields = [
             'id', 'data_source', 'data_source_name', 'name', 'description',
-            'layer_type', 'geometry_type', 'srid', 'extent', 'style',
-            'metadata', 'is_public', 'is_active', 'created_by',
-            'created_by_username', 'created_at', 'updated_at', 'feature_count'
+            'layer_type', 'geometry_type', 'srid', 'feature_count', 'extent', 'style',
+            'properties_schema', 'metadata', 'is_public', 'is_queryable', 'is_active',
+            'tags', 'original_filename', 'file_size',
+            'created_by', 'created_by_username', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = [
+            'id', 'created_at', 'updated_at', 'feature_count',
+            'original_filename', 'file_size'
+        ]
     
-    def get_feature_count(self, obj) -> int:
-        return obj.features.filter(is_active=True).count()
+    def to_representation(self, instance):
+        """Custom representation to handle null data_source."""
+        data = super().to_representation(instance)
+        if instance.data_source is None:
+            data['data_source_name'] = None
+        return data
 
 
 class FeatureSerializer(serializers.ModelSerializer):
@@ -65,11 +75,35 @@ class FeatureSerializer(serializers.ModelSerializer):
 
 class FeatureCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating features."""
-    geometry = GeometryField()
+    geometry = serializers.JSONField()
     
     class Meta:
         model = Feature
         fields = ['layer', 'feature_id', 'geometry', 'properties']
+    
+    def validate_geometry(self, value):
+        """Validate and convert GeoJSON geometry to GEOS geometry."""
+        if value is None:
+            raise serializers.ValidationError("La geometría es requerida")
+        
+        try:
+            if isinstance(value, dict):
+                geom = GEOSGeometry(json.dumps(value), srid=4326)
+            elif isinstance(value, str):
+                try:
+                    geom = GEOSGeometry(value, srid=4326)
+                except:
+                    geom = GEOSGeometry(value, srid=4326)
+            else:
+                raise serializers.ValidationError("Formato de geometría no válido")
+            
+            return geom
+        except Exception as e:
+            raise serializers.ValidationError(f"Error al procesar geometría: {str(e)}")
+    
+    def create(self, validated_data):
+        """Create feature with geometry."""
+        return Feature.objects.create(**validated_data)
 
 
 class DatasetSerializer(serializers.ModelSerializer):
@@ -80,8 +114,8 @@ class DatasetSerializer(serializers.ModelSerializer):
     class Meta:
         model = Dataset
         fields = [
-            'id', 'name', 'description', 'is_public', 'metadata', 'tags',
-            'is_active', 'created_by', 'created_by_username',
+            'id', 'name', 'description', 'layers', 'is_public', 
+            'metadata', 'tags', 'is_active', 'created_by', 'created_by_username',
             'created_at', 'updated_at', 'layer_count'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
@@ -92,14 +126,23 @@ class DatasetSerializer(serializers.ModelSerializer):
 
 class SyncLogSerializer(serializers.ModelSerializer):
     """Serializer for SyncLog model."""
-    data_source_name = serializers.CharField(source='data_source.name', read_only=True)
+    data_source_name = serializers.CharField(source='data_source.name', read_only=True, allow_null=True)
+    layer_name = serializers.CharField(source='layer.name', read_only=True, allow_null=True)
+    duration = serializers.SerializerMethodField()
     
     class Meta:
         model = SyncLog
         fields = [
-            'id', 'data_source', 'data_source_name',
-            'status', 'started_at', 'completed_at', 'records_processed',
-            'records_added', 'records_updated', 'records_failed',
-            'error_message', 'details'
+            'id', 'data_source', 'data_source_name', 'layer', 'layer_name',
+            'status', 'started_at', 'completed_at', 'duration',
+            'records_processed', 'records_added', 'records_updated',
+            'records_failed', 'error_message', 'details'
         ]
         read_only_fields = ['id', 'started_at']
+    
+    def get_duration(self, obj):
+        """Calculate duration in seconds."""
+        if obj.completed_at and obj.started_at:
+            delta = obj.completed_at - obj.started_at
+            return delta.total_seconds()
+        return None

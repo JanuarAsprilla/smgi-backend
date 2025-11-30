@@ -1,5 +1,6 @@
 """
 Models for Geodata app.
+SMGI - Sistema de Monitoreo Geoespacial Inteligente
 """
 from django.contrib.gis.db import models as gis_models
 from django.db import models
@@ -56,6 +57,7 @@ class DataSource(BaseModel):
         FILE = 'file', _('Archivo')
         SENTINEL = 'sentinel', _('Sentinel Hub')
         LANDSAT = 'landsat', _('Landsat')
+        ARCGIS = 'arcgis', _('ArcGIS Online')
         CUSTOM = 'custom', _('Personalizado')
     
     class Status(models.TextChoices):
@@ -76,7 +78,8 @@ class DataSource(BaseModel):
     source_type = models.CharField(
         _('tipo de fuente'),
         max_length=20,
-        choices=SourceType.choices
+        choices=SourceType.choices,
+        default=SourceType.FILE
     )
     url = models.URLField(
         _('URL'),
@@ -138,6 +141,7 @@ class DataSource(BaseModel):
 class Layer(BaseModel):
     """
     Model for geographic layers.
+    Supports both file uploads and external data sources.
     """
     
     class LayerType(models.TextChoices):
@@ -147,14 +151,15 @@ class Layer(BaseModel):
         TILE = 'tile', _('Tiles')
     
     class GeometryType(models.TextChoices):
-        POINT = 'point', _('Punto')
-        LINESTRING = 'linestring', _('Línea')
-        POLYGON = 'polygon', _('Polígono')
-        MULTIPOINT = 'multipoint', _('Multipunto')
-        MULTILINESTRING = 'multilinestring', _('Multilínea')
-        MULTIPOLYGON = 'multipolygon', _('Multipolígono')
-        GEOMETRYCOLLECTION = 'geometrycollection', _('Colección')
-        RASTER = 'raster', _('Raster')
+        POINT = 'POINT', _('Punto')
+        LINESTRING = 'LINESTRING', _('Línea')
+        POLYGON = 'POLYGON', _('Polígono')
+        MULTIPOINT = 'MULTIPOINT', _('Multipunto')
+        MULTILINESTRING = 'MULTILINESTRING', _('Multilínea')
+        MULTIPOLYGON = 'MULTIPOLYGON', _('Multipolígono')
+        GEOMETRYCOLLECTION = 'GEOMETRYCOLLECTION', _('Colección')
+        GEOMETRY = 'GEOMETRY', _('Geometría Mixta')
+        RASTER = 'RASTER', _('Raster')
     
     name = models.CharField(
         _('nombre'),
@@ -168,22 +173,30 @@ class Layer(BaseModel):
         DataSource,
         on_delete=models.CASCADE,
         related_name='layers',
-        verbose_name=_('fuente de datos')
+        verbose_name=_('fuente de datos'),
+        null=True,
+        blank=True
     )
     layer_type = models.CharField(
         _('tipo de capa'),
         max_length=20,
-        choices=LayerType.choices
+        choices=LayerType.choices,
+        default=LayerType.VECTOR
     )
     geometry_type = models.CharField(
         _('tipo de geometría'),
         max_length=30,
-        choices=GeometryType.choices
+        choices=GeometryType.choices,
+        default=GeometryType.GEOMETRY
     )
     srid = models.IntegerField(
         _('SRID'),
         default=4326,
         help_text=_('Sistema de referencia espacial (EPSG)')
+    )
+    feature_count = models.IntegerField(
+        _('número de features'),
+        default=0
     )
     extent = gis_models.PolygonField(
         _('extensión'),
@@ -221,19 +234,37 @@ class Layer(BaseModel):
         default=list,
         blank=True
     )
+    original_filename = models.CharField(
+        _('nombre de archivo original'),
+        max_length=500,
+        blank=True
+    )
+    file_size = models.BigIntegerField(
+        _('tamaño del archivo (bytes)'),
+        null=True,
+        blank=True
+    )
     
     class Meta:
         verbose_name = _('capa')
         verbose_name_plural = _('capas')
-        ordering = ['name']
-        unique_together = ['data_source', 'name']
+        ordering = ['-created_at']
         indexes = [
             models.Index(fields=['layer_type', 'is_active']),
-            models.Index(fields=['data_source', 'is_public']),
+            models.Index(fields=['is_public']),
+            models.Index(fields=['created_at']),
+            models.Index(fields=['name']),
         ]
     
     def __str__(self):
-        return f"{self.name} ({self.data_source.name})"
+        if self.data_source:
+            return f"{self.name} ({self.data_source.name})"
+        return self.name
+    
+    def update_feature_count(self):
+        """Actualiza el conteo de features."""
+        self.feature_count = self.features.filter(is_active=True).count()
+        self.save(update_fields=['feature_count'])
 
 
 class Feature(BaseModel):
@@ -327,17 +358,29 @@ class SyncLog(models.Model):
         SUCCESS = 'success', _('Exitoso')
         FAILED = 'failed', _('Fallido')
         PARTIAL = 'partial', _('Parcial')
+        PROCESSING = 'processing', _('Procesando')
     
     data_source = models.ForeignKey(
         DataSource,
         on_delete=models.CASCADE,
         related_name='sync_logs',
-        verbose_name=_('fuente de datos')
+        verbose_name=_('fuente de datos'),
+        null=True,
+        blank=True
+    )
+    layer = models.ForeignKey(
+        Layer,
+        on_delete=models.CASCADE,
+        related_name='sync_logs',
+        verbose_name=_('capa'),
+        null=True,
+        blank=True
     )
     status = models.CharField(
         _('estado'),
         max_length=20,
-        choices=Status.choices
+        choices=Status.choices,
+        default=Status.PROCESSING
     )
     started_at = models.DateTimeField(
         _('iniciado en'),
@@ -380,8 +423,10 @@ class SyncLog(models.Model):
         ordering = ['-started_at']
         indexes = [
             models.Index(fields=['data_source', 'status']),
+            models.Index(fields=['layer', 'status']),
             models.Index(fields=['started_at']),
         ]
     
     def __str__(self):
-        return f"Sync {self.data_source.name} - {self.status} ({self.started_at})"
+        source = self.data_source.name if self.data_source else (self.layer.name if self.layer else 'N/A')
+        return f"Sync {source} - {self.status} ({self.started_at})"

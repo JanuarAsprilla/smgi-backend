@@ -275,3 +275,251 @@ def update_layer_statistics(layer_id):
     except Exception as e:
         logger.error(f"Error updating layer statistics: {str(e)}")
         return {'status': 'failed', 'error': str(e)}
+
+# ============================================================================
+# PROCESAMIENTO ASÍNCRONO DE UPLOADS GRANDES
+# ============================================================================
+
+@shared_task(bind=True, max_retries=2, default_retry_delay=120)
+def process_layer_upload(self, layer_id, file_path, original_filename, user_id):
+    """
+    Procesa la subida de una capa de forma asíncrona.
+    Optimizado para archivos grandes (1GB+, 100k+ features).
+    """
+    from django.contrib.gis.geos import GEOSGeometry
+    from apps.users.models import User
+    import geopandas as gpd
+    import tempfile
+    import shutil
+    import zipfile
+    import os
+    import gc
+    from pathlib import Path
+    
+    sync_log = None
+    temp_dir = None
+    
+    try:
+        layer = Layer.objects.get(id=layer_id)
+        user = User.objects.get(id=user_id)
+        
+        # Crear log de sincronización
+        sync_log = SyncLog.objects.create(
+            layer=layer,
+            status='processing',
+            details={
+                'task_id': self.request.id,
+                'filename': original_filename,
+                'started_at': timezone.now().isoformat()
+            }
+        )
+        
+        logger.info(f"[Task {self.request.id}] Iniciando: {layer.name}")
+        logger.info(f"[Task {self.request.id}] Archivo: {original_filename}")
+        
+        # Directorio temporal
+        temp_dir = tempfile.mkdtemp(prefix='smgi_upload_')
+        
+        # Leer archivo
+        logger.info(f"[Task {self.request.id}] Leyendo archivo...")
+        gdf = _read_upload_file(file_path, original_filename, temp_dir)
+        
+        total_features = len(gdf)
+        logger.info(f"[Task {self.request.id}] Total features: {total_features}")
+        
+        if total_features == 0:
+            raise ValueError('El archivo no contiene features')
+        
+        # Reproyectar si es necesario
+        if gdf.crs and gdf.crs.to_epsg() != 4326:
+            logger.info(f"[Task {self.request.id}] Reproyectando de {gdf.crs} a EPSG:4326...")
+            gdf = gdf.to_crs(epsg=4326)
+        elif gdf.crs is None:
+            logger.warning(f"[Task {self.request.id}] Sin CRS, asumiendo EPSG:4326")
+            gdf = gdf.set_crs(epsg=4326)
+        
+        # Detectar tipo de geometría
+        geom_types = gdf.geometry.geom_type.unique()
+        geom_type = 'GEOMETRY' if len(geom_types) > 1 else str(geom_types[0]).upper()
+        
+        layer.geometry_type = geom_type
+        layer.save(update_fields=['geometry_type'])
+        
+        # Tamaño de lote según cantidad de features
+        if total_features > 50000:
+            batch_size = 250
+        elif total_features > 10000:
+            batch_size = 500
+        else:
+            batch_size = 1000
+        
+        features_created = 0
+        features_failed = 0
+        
+        logger.info(f"[Task {self.request.id}] Procesando en lotes de {batch_size}...")
+        
+        columns = [col for col in gdf.columns if col != 'geometry']
+        
+        for start_idx in range(0, total_features, batch_size):
+            end_idx = min(start_idx + batch_size, total_features)
+            batch_gdf = gdf.iloc[start_idx:end_idx]
+            
+            features_batch = []
+            
+            for idx, row in batch_gdf.iterrows():
+                if row.geometry is None or row.geometry.is_empty:
+                    features_failed += 1
+                    continue
+                
+                # Extraer propiedades
+                props = {}
+                for col in columns:
+                    val = row[col]
+                    if hasattr(val, 'item'):
+                        val = val.item()
+                    if val != val:  # NaN
+                        val = None
+                    if val is not None and not isinstance(val, (str, int, float, bool, list, dict)):
+                        val = str(val)
+                    props[col] = val
+                
+                try:
+                    geom = GEOSGeometry(row.geometry.wkt, srid=4326)
+                    features_batch.append(Feature(
+                        layer=layer,
+                        geometry=geom,
+                        properties=props,
+                        created_by=user
+                    ))
+                except Exception as e:
+                    features_failed += 1
+                    continue
+            
+            # Insertar lote
+            if features_batch:
+                Feature.objects.bulk_create(features_batch, batch_size=batch_size)
+                features_created += len(features_batch)
+            
+            # Progreso
+            progress = int((end_idx / total_features) * 100)
+            
+            self.update_state(
+                state='PROGRESS',
+                meta={
+                    'current': end_idx,
+                    'total': total_features,
+                    'percent': progress,
+                    'created': features_created,
+                    'failed': features_failed
+                }
+            )
+            
+            # Actualizar log
+            sync_log.records_processed = end_idx
+            sync_log.records_added = features_created
+            sync_log.records_failed = features_failed
+            sync_log.details['progress'] = progress
+            sync_log.save(update_fields=['records_processed', 'records_added', 'records_failed', 'details'])
+            
+            if progress % 10 == 0:
+                logger.info(f"[Task {self.request.id}] Progreso: {progress}% ({features_created} features)")
+            
+            # Liberar memoria
+            del features_batch
+            gc.collect()
+        
+        # Finalizar
+        layer.feature_count = features_created
+        layer.metadata = {
+            'processed_at': timezone.now().isoformat(),
+            'task_id': self.request.id,
+            'total_features': total_features,
+            'features_created': features_created,
+            'features_failed': features_failed
+        }
+        layer.save(update_fields=['feature_count', 'metadata'])
+        
+        sync_log.status = 'success'
+        sync_log.completed_at = timezone.now()
+        sync_log.records_processed = total_features
+        sync_log.records_added = features_created
+        sync_log.records_failed = features_failed
+        sync_log.details['message'] = f'Completado: {features_created} features'
+        sync_log.details['completed_at'] = timezone.now().isoformat()
+        sync_log.save()
+        
+        logger.info(f"[Task {self.request.id}] ✓ COMPLETADO: {features_created} features, {features_failed} fallidos")
+        
+        return {
+            'success': True,
+            'layer_id': layer.id,
+            'layer_name': layer.name,
+            'features_created': features_created,
+            'features_failed': features_failed
+        }
+        
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"[Task {self.request.id}] ✗ ERROR: {error_msg}", exc_info=True)
+        
+        if sync_log:
+            sync_log.status = 'failed'
+            sync_log.completed_at = timezone.now()
+            sync_log.error_message = error_msg
+            sync_log.save()
+        
+        try:
+            layer = Layer.objects.get(id=layer_id)
+            if layer.feature_count == 0:
+                layer.delete()
+        except:
+            pass
+        
+        if self.request.retries < self.max_retries:
+            raise self.retry(exc=e)
+        raise
+        
+    finally:
+        if temp_dir and os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except:
+                pass
+        gc.collect()
+
+
+def _read_upload_file(file_path, filename, temp_dir):
+    """Lee archivos geoespaciales para upload."""
+    import geopandas as gpd
+    import zipfile
+    from pathlib import Path
+    
+    filename_lower = filename.lower()
+    
+    if filename_lower.endswith('.zip'):
+        with zipfile.ZipFile(file_path) as zf:
+            zf.extractall(temp_dir)
+        
+        for pattern in ['*.shp', '*.geojson', '*.json', '*.gpkg']:
+            files = list(Path(temp_dir).rglob(pattern))
+            if files:
+                return gpd.read_file(str(files[0]))
+        
+        kml_files = list(Path(temp_dir).rglob('*.kml'))
+        if kml_files:
+            return gpd.read_file(str(kml_files[0]), driver='KML')
+        
+        raise ValueError('No se encontró archivo geoespacial en el ZIP')
+    
+    elif filename_lower.endswith(('.geojson', '.json')):
+        return gpd.read_file(file_path)
+    elif filename_lower.endswith('.kml'):
+        return gpd.read_file(file_path, driver='KML')
+    elif filename_lower.endswith('.gpkg'):
+        return gpd.read_file(file_path)
+    elif filename_lower.endswith('.shp'):
+        return gpd.read_file(file_path)
+    else:
+        raise ValueError(f'Formato no soportado: {filename}')

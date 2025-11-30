@@ -1,14 +1,24 @@
 """
-Views for Geodata app - Updated with export functionality.
+Views for Geodata app - SMGI Sistema de Monitoreo Geoespacial Inteligente.
+Includes upload functionality for shapefiles, GeoJSON, KML, GeoPackage.
 """
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser
 from django_filters.rest_framework import DjangoFilterBackend
+from django.contrib.gis.geos import GEOSGeometry
 from django.db.models import Q
 from django.http import FileResponse, HttpResponse
 import os
+import json
+import tempfile
+import shutil
+import zipfile
+from pathlib import Path
+from datetime import datetime
+import logging
 
 from .models import DataSource, Layer, Feature, Dataset, SyncLog
 from .serializers import (
@@ -25,11 +35,7 @@ from .tasks import sync_data_source
 from .exporters import ShapefileExporter, GeoJSONExporter
 from apps.users.permissions import IsAnalystOrAbove
 
-import tempfile
-import zipfile
-from pathlib import Path
-# from osgeo import ogr, osr  # TODO: Instalar GDAL
-from datetime import datetime
+logger = logging.getLogger(__name__)
 
 
 class ExportMixin:
@@ -39,15 +45,6 @@ class ExportMixin:
     def export_data(self, request, pk=None):
         """
         Exporta los datos a Shapefile o GeoJSON.
-        
-        POST /api/v1/geodata/layers/{id}/export/
-        
-        Body:
-        {
-            "format": "shapefile|geojson|both",
-            "filename": "mi_capa" (opcional),
-            "crs": "EPSG:4326" (opcional)
-        }
         """
         serializer = ExportRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -59,14 +56,15 @@ class ExportMixin:
         files = []
         
         try:
-            # Exportar Shapefile
             if export_format in ['shapefile', 'both']:
                 shp_exporter = ShapefileExporter(output_dir='data/exports/shapefiles')
                 
-                if hasattr(obj, 'features'):  # Es una Layer
-                    shp_path = shp_exporter.export_layer(obj, filename)
-                elif hasattr(obj, 'layers'):  # Es un Dataset
-                    shp_path = shp_exporter.export_dataset(obj, filename)
+                if hasattr(obj, 'features'):
+                    result = shp_exporter.export_layer(obj, filename)
+                    shp_path = result.get('file_path', result) if isinstance(result, dict) else result
+                elif hasattr(obj, 'layers'):
+                    result = shp_exporter.export_dataset(obj, filename)
+                    shp_path = result.get('file_path', result) if isinstance(result, dict) else result
                 else:
                     return Response({
                         'error': 'Tipo de objeto no soportado'
@@ -75,23 +73,23 @@ class ExportMixin:
                 files.append({
                     'format': 'shapefile',
                     'filename': os.path.basename(shp_path),
-                    'size': os.path.getsize(shp_path),
+                    'size': os.path.getsize(shp_path) if os.path.exists(shp_path) else 0,
                     'download_url': request.build_absolute_uri(
                         f'/api/v1/geodata/download/{os.path.basename(shp_path)}'
                     )
                 })
             
-            # Exportar GeoJSON
             if export_format in ['geojson', 'both']:
                 geojson_exporter = GeoJSONExporter(output_dir='data/exports/geojson')
                 
                 if hasattr(obj, 'features'):
-                    geojson_path = geojson_exporter.export_layer(obj, filename)
+                    result = geojson_exporter.export_layer(obj, filename)
+                    geojson_path = result.get('file_path', result) if isinstance(result, dict) else result
                     
                     files.append({
                         'format': 'geojson',
                         'filename': os.path.basename(geojson_path),
-                        'size': os.path.getsize(geojson_path),
+                        'size': os.path.getsize(geojson_path) if os.path.exists(geojson_path) else 0,
                         'download_url': request.build_absolute_uri(
                             f'/api/v1/geodata/download/{os.path.basename(geojson_path)}'
                         )
@@ -104,29 +102,27 @@ class ExportMixin:
             })
         
         except Exception as e:
+            logger.error(f"Export error: {str(e)}", exc_info=True)
             return Response({
                 'success': False,
                 'message': f'Error: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
-    @action(detail=True, methods=['get'], url_path='download/<str:format>')
-    def download_export(self, request, pk=None, format=None):
-        """
-        Genera y descarga archivo directamente.
-        
-        GET /api/v1/geodata/layers/{id}/download/shapefile/
-        GET /api/v1/geodata/layers/{id}/download/geojson/
-        """
+    @action(detail=True, methods=['get'], url_path='download/(?P<format_type>[^/.]+)')
+    def download_export(self, request, pk=None, format_type=None):
+        """Genera y descarga archivo directamente."""
         obj = self.get_object()
         
         try:
-            if format == 'shapefile':
+            if format_type == 'shapefile':
                 exporter = ShapefileExporter(output_dir='data/exports/shapefiles')
-                file_path = exporter.export_layer(obj)
+                result = exporter.export_layer(obj)
+                file_path = result.get('file_path', result) if isinstance(result, dict) else result
                 content_type = 'application/zip'
             else:
                 exporter = GeoJSONExporter(output_dir='data/exports/geojson')
-                file_path = exporter.export_layer(obj)
+                result = exporter.export_layer(obj)
+                file_path = result.get('file_path', result) if isinstance(result, dict) else result
                 content_type = 'application/geo+json'
             
             if os.path.exists(file_path):
@@ -142,6 +138,7 @@ class ExportMixin:
             }, status=status.HTTP_404_NOT_FOUND)
         
         except Exception as e:
+            logger.error(f"Download error: {str(e)}", exc_info=True)
             return Response({
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -173,174 +170,312 @@ class DataSourceViewSet(viewsets.ModelViewSet):
 
 
 class LayerViewSet(ExportMixin, viewsets.ModelViewSet):
-    """ViewSet for Layer model with export functionality."""
-    queryset = Layer.objects.select_related('data_source').all()
+    """
+    ViewSet for Layer model with upload and export functionality.
+    """
+    queryset = Layer.objects.all()
     serializer_class = LayerSerializer
     permission_classes = [IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser)
     filter_backends = [DjangoFilterBackend]
     filterset_class = LayerFilter
     
     def get_queryset(self):
-        queryset = super().get_queryset()
-        if not self.request.user.is_staff:
+        """Filter queryset based on permissions."""
+        queryset = Layer.objects.all()
+        user = self.request.user
+        if not user.is_staff:
             queryset = queryset.filter(
-                Q(is_public=True) | Q(created_by=self.request.user)
+                Q(is_public=True) | Q(created_by=user)
             )
-        return queryset
+        return queryset.order_by('-created_at')
+    
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+    
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user)
 
-
-    def _export_shapefile_complete(self, layer, gdf):
+    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
+    def upload(self, request):
         """
-        Exportar Shapefile COMPLETO con todos los archivos necesarios:
-        .shp, .shx, .dbf, .prj, .cpg, .sbn, .sbx, .shp.xml
-        """
-        with tempfile.TemporaryDirectory() as tmpdir:
-            base_path = Path(tmpdir) / layer.name.replace(' ', '_')
-            shp_path = str(base_path) + '.shp'
-            
-            # 1. Escribir Shapefile base (.shp, .shx, .dbf)
-            gdf.to_file(shp_path, driver='ESRI Shapefile', encoding='utf-8')
-            
-            # 2. Crear archivo .prj (Sistema de coordenadas)
-            self._create_prj_file(str(base_path) + '.prj', layer.srid)
-            
-            # 3. Crear archivo .cpg (Codificación UTF-8)
-            self._create_cpg_file(str(base_path) + '.cpg')
-            
-            # 4. Crear índice espacial (.sbn, .sbx) si hay muchos features
-            if gdf.shape[0] > 100:
-                self._create_spatial_index(shp_path)
-            
-            # 5. Crear metadata XML (.shp.xml)
-            self._create_shapefile_metadata(
-                str(base_path) + '.shp.xml',
-                layer,
-                gdf
-            )
-            
-            # 6. Comprimir todo en ZIP
-            zip_filename = f'{layer.name.replace(" ", "_")}_shapefile.zip'
-            zip_path = Path(tmpdir) / zip_filename
-            
-            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                for ext in ['.shp', '.shx', '.dbf', '.prj', '.cpg', '.sbn', '.sbx', '.shp.xml']:
-                    file_path = str(base_path) + ext
-                    if os.path.exists(file_path):
-                        arcname = os.path.basename(file_path)
-                        zipf.write(file_path, arcname)
-            
-            # 7. Retornar ZIP
-            with open(zip_path, 'rb') as f:
-                response = HttpResponse(f.read(), content_type='application/zip')
-                response['Content-Disposition'] = f'attachment; filename="{zip_filename}"'
-                return response
-    
-    
-    #     #     #     def _create_prj_file(self, prj_path, srid):
-    #     #     #         """Crear archivo .prj con la proyección WKT"""
-    #     #     #         try:
-    #     #     #             srs = osr.SpatialReference()
-    #     #     #             srs.ImportFromEPSG(srid)
-    #     #     #             with open(prj_path, 'w') as f:
-    #     #     #                 f.write(srs.ExportToWkt())
-    #     #     #         except Exception as e:
-    #     #     #             # Fallback a WGS84 si falla
-    #     #     #             with open(prj_path, 'w') as f:
-    #     #     #                 f.write('GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]')
-    
-    
-    #     #     # TODO: Requiere GDAL
-
-    #     # TODO: Requiere GDAL
-
-    # TODO: Requiere GDAL
-
-    def _create_cpg_file(self, cpg_path):
-        """Crear archivo .cpg con codificación UTF-8"""
-        with open(cpg_path, 'w') as f:
-            f.write('UTF-8')
-    
-    
-    #     #     #     def _create_spatial_index(self, shp_path):
-    #     #     #         """Crear índice espacial (.sbn, .sbx) usando OGR"""
-    #     #     #         try:
-    #     #     #             driver = ogr.GetDriverByName('ESRI Shapefile')
-    #     #     #             dataSource = driver.Open(shp_path, 1)  # 1 = write mode
-    #     #     #             if dataSource:
-    #     #     #                 layer = dataSource.GetLayer()
-    #     #     #                 # Crear índice espacial
-    #     #     #                 dataSource.ExecuteSQL(f'CREATE SPATIAL INDEX ON {layer.GetName()}')
-    #     #     #                 dataSource = None  # Cerrar
-    #     #     #         except Exception as e:
-    #     #     #             # No crítico si falla
-    #     #     #             pass
-    
-    
-    #     #     # TODO: Requiere GDAL
-
-    #     # TODO: Requiere GDAL
-
-    # TODO: Requiere GDAL
-
-    def _create_shapefile_metadata(self, xml_path, layer, gdf):
-        """Crear metadata ISO 19139 en XML"""
-        xml_content = f'''<?xml version="1.0" encoding="UTF-8"?>
-    <metadata xml:lang="es">
-      <idinfo>
-        <citation>
-          <citeinfo>
-            <origin>SMGI System</origin>
-            <pubdate>{datetime.now().strftime("%Y%m%d")}</pubdate>
-            <title>{layer.name}</title>
-          </citeinfo>
-        </citation>
-        <descript>
-          <abstract>{layer.description or "Sin descripción"}</abstract>
-          <purpose>Datos geoespaciales exportados desde SMGI</purpose>
-        </descript>
-        <spdom>
-          <bounding>
-            <westbc>{gdf.total_bounds[0]}</westbc>
-            <eastbc>{gdf.total_bounds[2]}</eastbc>
-            <northbc>{gdf.total_bounds[3]}</northbc>
-            <southbc>{gdf.total_bounds[1]}</southbc>
-          </bounding>
-        </spdom>
-      </idinfo>
-      <spdoinfo>
-        <direct>Vector</direct>
-        <ptvctinf>
-          <sdtsterm>
-            <sdtstype>{layer.geometry_type}</sdtstype>
-            <ptvctcnt>{gdf.shape[0]}</ptvctcnt>
-          </sdtsterm>
-        </ptvctinf>
-      </spdoinfo>
-      <spref>
-        <horizsys>
-          <geodetic>
-            <horizdn>WGS84</horizdn>
-            <ellips>WGS84</ellips>
-          </geodetic>
-        </horizsys>
-      </spref>
-      <metainfo>
-        <metd>{datetime.now().strftime("%Y%m%d")}</metd>
-        <metc>
-          <cntinfo>
-            <cntorgp>
-              <cntorg>SMGI System</cntorg>
-            </cntorgp>
-          </cntinfo>
-        </metc>
-        <metstdn>FGDC Content Standards for Digital Geospatial Metadata</metstdn>
-        <metstdv>FGDC-STD-001-1998</metstdv>
-      </metainfo>
-    </metadata>'''
+        Upload shapefile, geojson, kml, gpkg.
         
-        with open(xml_path, 'w', encoding='utf-8') as f:
-            f.write(xml_content)
+        POST /api/v1/geodata/layers/upload/
+        """
+        import geopandas as gpd
+        
+        logger.info(f"Upload request - FILES: {request.FILES}")
+        logger.info(f"Upload request - DATA: {request.data}")
+        
+        file = request.FILES.get('file')
+        if not file:
+            logger.error("No file in request")
+            return Response(
+                {'error': 'No se proporcionó ningún archivo'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        max_size = 500 * 1024 * 1024
+        if file.size > max_size:
+            return Response(
+                {'error': f'El archivo excede el tamaño máximo permitido (500MB). Tamaño: {file.size / (1024*1024):.2f}MB'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        name = request.data.get('name', '').strip()
+        if not name:
+            name = file.name.rsplit('.', 1)[0]
+        
+        description = request.data.get('description', '')
+        temp_dir = tempfile.mkdtemp()
+        
+        logger.info(f"Processing file: {file.name}, size: {file.size}")
+        
+        try:
+            file_path = os.path.join(temp_dir, file.name)
+            with open(file_path, 'wb') as f:
+                for chunk in file.chunks():
+                    f.write(chunk)
+            
+            logger.info(f"File saved to: {file_path}")
+            
+            gdf = self._read_geodata_file(file_path, file.name, temp_dir)
+            
+            logger.info(f"Read {len(gdf)} features from file")
+            
+            if len(gdf) == 0:
+                raise ValueError('El archivo no contiene features')
+            
+            if gdf.crs and gdf.crs.to_epsg() != 4326:
+                logger.info(f"Reprojecting from {gdf.crs} to EPSG:4326")
+                gdf = gdf.to_crs(epsg=4326)
+            elif gdf.crs is None:
+                logger.warning("No CRS found, assuming EPSG:4326")
+                gdf = gdf.set_crs(epsg=4326)
+            
+            geom_types = gdf.geometry.geom_type.unique()
+            if len(geom_types) > 1:
+                geom_type = 'GEOMETRY'
+            else:
+                geom_type = str(geom_types[0]).upper()
+                geom_type_mapping = {
+                    'POINT': 'POINT',
+                    'LINESTRING': 'LINESTRING',
+                    'POLYGON': 'POLYGON',
+                    'MULTIPOINT': 'MULTIPOINT',
+                    'MULTILINESTRING': 'MULTILINESTRING',
+                    'MULTIPOLYGON': 'MULTIPOLYGON',
+                    'GEOMETRYCOLLECTION': 'GEOMETRYCOLLECTION',
+                }
+                geom_type = geom_type_mapping.get(geom_type, 'GEOMETRY')
+            
+            logger.info(f"Geometry type: {geom_type}")
+            
+            layer = Layer.objects.create(
+                name=name,
+                description=description,
+                geometry_type=geom_type,
+                layer_type='vector',
+                srid=4326,
+                created_by=request.user,
+                feature_count=0,
+                original_filename=file.name,
+                file_size=file.size,
+                is_public=False
+            )
+            
+            logger.info(f"Created layer: {layer.id}")
+            
+            features_created = self._create_features_batch(layer, gdf, request.user)
+            
+            if features_created > 0:
+                layer.feature_count = features_created
+                layer.save(update_fields=['feature_count'])
+                logger.info(f"Created {features_created} features")
+            else:
+                layer.delete()
+                raise ValueError('No se pudieron crear features válidos')
+            
+            return Response({
+                'message': f'Capa "{name}" subida exitosamente',
+                'layer': {
+                    'id': layer.id,
+                    'name': layer.name,
+                    'description': layer.description,
+                    'geometry_type': layer.geometry_type,
+                    'feature_count': layer.feature_count,
+                    'srid': layer.srid,
+                    'created_at': layer.created_at.isoformat(),
+                    'original_filename': layer.original_filename,
+                    'file_size': layer.file_size,
+                }
+            }, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            logger.error(f"Upload error: {str(e)}", exc_info=True)
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
     
+    def _read_geodata_file(self, file_path, filename, temp_dir):
+        """Lee archivos geoespaciales de diferentes formatos."""
+        import geopandas as gpd
+        
+        filename_lower = filename.lower()
+        
+        if filename_lower.endswith('.zip'):
+            logger.info("Processing ZIP file")
+            with zipfile.ZipFile(file_path) as zf:
+                zf.extractall(temp_dir)
+            
+            shp_files = list(Path(temp_dir).rglob('*.shp'))
+            if shp_files:
+                logger.info(f"Found .shp file: {shp_files[0]}")
+                return gpd.read_file(str(shp_files[0]))
+            
+            geojson_files = list(Path(temp_dir).rglob('*.geojson')) + list(Path(temp_dir).rglob('*.json'))
+            if geojson_files:
+                logger.info(f"Found GeoJSON file: {geojson_files[0]}")
+                return gpd.read_file(str(geojson_files[0]))
+            
+            gpkg_files = list(Path(temp_dir).rglob('*.gpkg'))
+            if gpkg_files:
+                logger.info(f"Found GeoPackage file: {gpkg_files[0]}")
+                return gpd.read_file(str(gpkg_files[0]))
+            
+            kml_files = list(Path(temp_dir).rglob('*.kml'))
+            if kml_files:
+                logger.info(f"Found KML file: {kml_files[0]}")
+                return gpd.read_file(str(kml_files[0]), driver='KML')
+            
+            raise ValueError('No se encontró archivo geoespacial válido en el ZIP')
+        
+        elif filename_lower.endswith(('.geojson', '.json')):
+            logger.info("Processing GeoJSON file")
+            return gpd.read_file(file_path)
+        
+        elif filename_lower.endswith('.kml'):
+            logger.info("Processing KML file")
+            return gpd.read_file(file_path, driver='KML')
+        
+        elif filename_lower.endswith('.gpkg'):
+            logger.info("Processing GeoPackage file")
+            return gpd.read_file(file_path)
+        
+        elif filename_lower.endswith('.shp'):
+            logger.info("Processing Shapefile")
+            return gpd.read_file(file_path)
+        
+        else:
+            raise ValueError(f'Formato de archivo no soportado: {filename}')
+    
+    def _create_features_batch(self, layer, gdf, user, batch_size=1000):
+        """Crea features en lotes para mejor rendimiento."""
+        features = []
+        created_count = 0
+        skipped_count = 0
+        
+        for idx, row in gdf.iterrows():
+            if row.geometry is None or row.geometry.is_empty:
+                skipped_count += 1
+                continue
+            
+            props = {}
+            for col in gdf.columns:
+                if col != 'geometry':
+                    val = row[col]
+                    if hasattr(val, 'item'):
+                        val = val.item()
+                    if val != val:
+                        val = None
+                    if val is not None and not isinstance(val, (str, int, float, bool, list, dict)):
+                        val = str(val)
+                    props[col] = val
+            
+            try:
+                geom = GEOSGeometry(row.geometry.wkt, srid=4326)
+                features.append(Feature(
+                    layer=layer, 
+                    geometry=geom,
+                    properties=props,
+                    created_by=user
+                ))
+                
+                if len(features) >= batch_size:
+                    Feature.objects.bulk_create(features, batch_size=batch_size)
+                    created_count += len(features)
+                    logger.info(f"Batch inserted: {created_count} features")
+                    features = []
+                    
+            except Exception as e:
+                logger.warning(f"Failed to create feature {idx}: {e}")
+                skipped_count += 1
+                continue
+        
+        if features:
+            Feature.objects.bulk_create(features, batch_size=batch_size)
+            created_count += len(features)
+        
+        if skipped_count > 0:
+            logger.warning(f"Skipped {skipped_count} invalid features")
+        
+        return created_count
+
+    @action(detail=True, methods=['get'])
+    def geojson(self, request, pk=None):
+        """Retorna la capa como GeoJSON para visualización en mapa."""
+        layer = self.get_object()
+        features = layer.features.filter(is_active=True)
+        
+        geojson = {
+            "type": "FeatureCollection",
+            "name": layer.name,
+            "crs": {
+                "type": "name",
+                "properties": {
+                    "name": f"urn:ogc:def:crs:EPSG::{layer.srid}"
+                }
+            },
+            "features": []
+        }
+        
+        for feature in features:
+            try:
+                geojson["features"].append({
+                    "type": "Feature",
+                    "id": feature.id,
+                    "geometry": json.loads(feature.geometry.geojson),
+                    "properties": feature.properties or {}
+                })
+            except Exception as e:
+                logger.warning(f"Error serializing feature {feature.id}: {e}")
+                continue
+        
+        return Response(geojson)
+    
+    @action(detail=True, methods=['get'])
+    def stats(self, request, pk=None):
+        """Retorna estadísticas de la capa."""
+        layer = self.get_object()
+        features = layer.features.filter(is_active=True)
+        
+        return Response({
+            'layer_id': layer.id,
+            'name': layer.name,
+            'feature_count': features.count(),
+            'geometry_type': layer.geometry_type,
+            'srid': layer.srid,
+            'is_public': layer.is_public,
+            'created_at': layer.created_at.isoformat(),
+            'updated_at': layer.updated_at.isoformat(),
+            'original_filename': layer.original_filename,
+            'file_size': layer.file_size,
+        })
+
 
 class FeatureViewSet(viewsets.ModelViewSet):
     """ViewSet for Feature model."""
@@ -350,10 +485,20 @@ class FeatureViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_class = FeatureFilter
     
+    def get_queryset(self):
+        queryset = Feature.objects.all()
+        layer_id = self.request.query_params.get('layer')
+        if layer_id:
+            queryset = queryset.filter(layer_id=layer_id)
+        return queryset.filter(is_active=True)
+    
     def get_serializer_class(self):
         if self.action == 'create':
             return FeatureCreateSerializer
         return FeatureSerializer
+    
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
 
 
 class DatasetViewSet(ExportMixin, viewsets.ModelViewSet):
@@ -361,137 +506,28 @@ class DatasetViewSet(ExportMixin, viewsets.ModelViewSet):
     queryset = Dataset.objects.all()
     serializer_class = DatasetSerializer
     permission_classes = [IsAuthenticated, IsAnalystOrAbove]
+    
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+    
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user)
 
 
 class SyncLogViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for SyncLog model (read-only)."""
-    queryset = SyncLog.objects.select_related('data_source').all()
+    queryset = SyncLog.objects.all()
     serializer_class = SyncLogSerializer
     permission_classes = [IsAuthenticated]
-
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from rest_framework import status
-from django.http import FileResponse
-from .exporters import ShapefileExporter, GeoJSONExporter
-from .serializers_export import ExportRequestSerializer, ExportResponseSerializer
-import os
-
-
-# Agregar estos métodos a DataSourceViewSet, LayerViewSet, etc.
-# Los agregaremos en un mixin para reutilizar
-
-class ExportMixin:
-    """Mixin para agregar funcionalidad de exportación."""
     
-    @action(detail=True, methods=['post'], url_path='export')
-    def export_data(self, request, pk=None):
-        """
-        Exporta los datos a Shapefile o GeoJSON.
+    def get_queryset(self):
+        queryset = SyncLog.objects.all()
+        data_source_id = self.request.query_params.get('data_source')
+        layer_id = self.request.query_params.get('layer')
         
-        Parámetros:
-        - format: 'shapefile', 'geojson', o 'both'
-        - filename: Nombre personalizado (opcional)
-        - crs: Sistema de coordenadas (default: EPSG:4326)
-        """
-        serializer = ExportRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        if data_source_id:
+            queryset = queryset.filter(data_source_id=data_source_id)
+        if layer_id:
+            queryset = queryset.filter(layer_id=layer_id)
         
-        obj = self.get_object()
-        export_format = serializer.validated_data['format']
-        filename = serializer.validated_data.get('filename')
-        crs = serializer.validated_data.get('crs', 'EPSG:4326')
-        
-        files = []
-        
-        try:
-            # Exportar Shapefile
-            if export_format in ['shapefile', 'both']:
-                shp_exporter = ShapefileExporter(output_dir='data/exports/shapefiles')
-                
-                if hasattr(obj, 'features'):  # Es una Layer
-                    shp_path = shp_exporter.export_layer(obj, filename)
-                elif hasattr(obj, 'layers'):  # Es un Dataset
-                    shp_path = shp_exporter.export_dataset(obj, filename)
-                else:
-                    return Response({
-                        'error': 'Tipo de objeto no soportado para exportación'
-                    }, status=status.HTTP_400_BAD_REQUEST)
-                
-                files.append({
-                    'format': 'shapefile',
-                    'path': shp_path,
-                    'filename': os.path.basename(shp_path),
-                    'size': os.path.getsize(shp_path)
-                })
-            
-            # Exportar GeoJSON
-            if export_format in ['geojson', 'both']:
-                geojson_exporter = GeoJSONExporter(output_dir='data/exports/geojson')
-                
-                if hasattr(obj, 'features'):
-                    geojson_path = geojson_exporter.export_layer(obj, filename)
-                else:
-                    return Response({
-                        'error': 'GeoJSON solo soporta capas individuales'
-                    }, status=status.HTTP_400_BAD_REQUEST)
-                
-                files.append({
-                    'format': 'geojson',
-                    'path': geojson_path,
-                    'filename': os.path.basename(geojson_path),
-                    'size': os.path.getsize(geojson_path)
-                })
-            
-            # Construir URLs de descarga
-            download_urls = [
-                request.build_absolute_uri(f'/api/v1/geodata/download/{os.path.basename(f["path"])}')
-                for f in files
-            ]
-            
-            return Response({
-                'success': True,
-                'message': f'Exportación completada exitosamente',
-                'files': files,
-                'download_urls': download_urls
-            })
-        
-        except Exception as e:
-            return Response({
-                'success': False,
-                'message': f'Error en exportación: {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
-    @action(detail=True, methods=['get'], url_path='download/<str:format>')
-    def download(self, request, pk=None, format=None):
-        """
-        Descarga directa del archivo exportado.
-        """
-        obj = self.get_object()
-        
-        try:
-            if format == 'shapefile':
-                exporter = ShapefileExporter(output_dir='data/exports/shapefiles')
-                file_path = exporter.export_layer(obj)
-                content_type = 'application/zip'
-            else:  # geojson
-                exporter = GeoJSONExporter(output_dir='data/exports/geojson')
-                file_path = exporter.export_layer(obj)
-                content_type = 'application/geo+json'
-            
-            if os.path.exists(file_path):
-                response = FileResponse(
-                    open(file_path, 'rb'),
-                    content_type=content_type
-                )
-                response['Content-Disposition'] = f'attachment; filename="{os.path.basename(file_path)}"'
-                return response
-            else:
-                return Response({
-                    'error': 'Archivo no encontrado'
-                }, status=status.HTTP_404_NOT_FOUND)
-        
-        except Exception as e:
-            return Response({
-                'error': str(e)
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return queryset.order_by('-started_at')
