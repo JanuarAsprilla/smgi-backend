@@ -43,10 +43,9 @@ class AlertChannelAdmin(admin.ModelAdmin):
     
     def success_rate_display(self, obj):
         """Display success rate."""
+        rate = obj.success_rate
         if obj.total_sent == 0:
             return "N/A"
-        success = obj.total_sent - obj.total_failed
-        rate = (success / obj.total_sent) * 100
         color = 'green' if rate >= 90 else 'orange' if rate >= 70 else 'red'
         return format_html(
             '<span style="color: {};">{:.1f}%</span>',
@@ -59,7 +58,7 @@ class AlertChannelAdmin(admin.ModelAdmin):
 @admin.register(AlertRule)
 class AlertRuleAdmin(admin.ModelAdmin):
     """Admin configuration for AlertRule model."""
-    list_display = ['name', 'severity_badge', 'trigger_type', 'is_enabled', 'trigger_count', 'last_triggered']
+    list_display = ['name', 'severity_badge', 'trigger_type', 'is_enabled', 'is_throttled_display', 'trigger_count', 'last_triggered']
     list_filter = ['severity', 'trigger_type', 'is_enabled', 'is_active', 'created_at']
     search_fields = ['name', 'description']
     readonly_fields = ['trigger_count', 'last_triggered', 'created_by', 'updated_by', 'created_at', 'updated_at']
@@ -114,7 +113,7 @@ class AlertRuleAdmin(admin.ModelAdmin):
 @admin.register(Alert)
 class AlertAdmin(admin.ModelAdmin):
     """Admin configuration for Alert model."""
-    list_display = ['title', 'rule', 'severity_badge', 'status_badge', 'sent_at', 'acknowledged_by', 'created_at']
+    list_display = ['title', 'rule', 'severity_badge', 'status_badge', 'age_display', 'sent_at', 'acknowledged_by', 'created_at']
     list_filter = ['severity', 'status', 'created_at', 'sent_at']
     search_fields = ['title', 'message', 'rule__name']
     readonly_fields = ['sent_at', 'delivery_details', 'acknowledged_by', 'acknowledged_at', 'resolved_by', 'resolved_at', 'created_by', 'updated_by', 'created_at', 'updated_at']
@@ -183,6 +182,19 @@ class AlertAdmin(admin.ModelAdmin):
             obj.get_status_display()
         )
     status_badge.short_description = 'Estado'
+    
+    def age_display(self, obj):
+        """Display alert age in hours."""
+        age = obj.age_hours
+        color = 'red' if age > 24 else 'orange' if age > 12 else 'green'
+        icon = '🔴' if obj.is_critical else ''
+        return format_html(
+            '<span style="color: {};">{} {:.1f}h</span>',
+            color,
+            icon,
+            age
+        )
+    age_display.short_description = 'Edad'
 
 
 @admin.register(AlertLog)

@@ -147,6 +147,12 @@ class AlertRuleViewSet(viewsets.ModelViewSet):
         """Test an alert rule by sending a test alert."""
         rule = self.get_object()
         
+        if not rule.can_trigger():
+            return Response(
+                {'error': 'La regla no puede ser activada en este momento (throttled o deshabilitada)'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
         # Create a test alert
         test_alert = Alert.objects.create(
             rule=rule,
@@ -216,37 +222,39 @@ class AlertViewSet(viewsets.ModelViewSet):
         """Acknowledge an alert."""
         alert = self.get_object()
         
-        if alert.status == 'acknowledged':
+        if not alert.can_acknowledge():
             return Response(
-                {'error': 'La alerta ya ha sido reconocida'},
+                {'error': 'La alerta no puede ser reconocida'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        alert.status = 'acknowledged'
-        alert.acknowledged_by = request.user
-        alert.acknowledged_at = timezone.now()
-        alert.save()
+        if alert.acknowledge(request.user):
+            return Response({'message': 'Alerta reconocida'})
         
-        return Response({'message': 'Alerta reconocida'})
+        return Response(
+            {'error': 'Error al reconocer la alerta'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
     
     @action(detail=True, methods=['post'])
     def resolve(self, request, pk=None):
         """Resolve an alert."""
         alert = self.get_object()
         
-        if alert.status == 'resolved':
+        if not alert.can_resolve():
             return Response(
-                {'error': 'La alerta ya ha sido resuelta'},
+                {'error': 'La alerta no puede ser resuelta'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        alert.status = 'resolved'
-        alert.resolved_by = request.user
-        alert.resolved_at = timezone.now()
-        alert.resolution_notes = request.data.get('notes', '')
-        alert.save()
+        notes = request.data.get('notes', '')
+        if alert.resolve(request.user, notes):
+            return Response({'message': 'Alerta resuelta'})
         
-        return Response({'message': 'Alerta resuelta'})
+        return Response(
+            {'error': 'Error al resolver la alerta'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
     
     @action(detail=True, methods=['post'])
     def resend(self, request, pk=None):

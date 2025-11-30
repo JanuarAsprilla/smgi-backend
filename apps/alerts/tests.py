@@ -50,6 +50,24 @@ class AlertChannelModelTest(TestCase):
     def test_channel_str(self):
         """Test channel string representation."""
         self.assertEqual(str(self.channel), 'Test Email Channel (Email)')
+    
+    def test_channel_success_rate(self):
+        """Test channel success rate calculation."""
+        self.assertEqual(self.channel.success_rate, 0.0)
+        self.channel.total_sent = 10
+        self.channel.total_failed = 2
+        self.assertEqual(self.channel.success_rate, 80.0)
+    
+    def test_channel_increment_stats(self):
+        """Test incrementing channel statistics."""
+        self.channel.increment_stats(success=True)
+        self.assertEqual(self.channel.total_sent, 1)
+        self.assertEqual(self.channel.total_failed, 0)
+        
+        self.channel.increment_stats(success=False)
+        self.assertEqual(self.channel.total_sent, 2)
+        self.assertEqual(self.channel.total_failed, 1)
+        self.assertIsNotNone(self.channel.last_used)
 
 
 class AlertRuleModelTest(TestCase):
@@ -105,6 +123,24 @@ class AlertRuleModelTest(TestCase):
     def test_rule_str(self):
         """Test rule string representation."""
         self.assertEqual(str(self.rule), 'Test Rule')
+    
+    def test_rule_is_throttled(self):
+        """Test rule throttling."""
+        self.assertFalse(self.rule.is_throttled())
+        self.rule.throttle_minutes = 30
+        self.assertFalse(self.rule.is_throttled())  # No last_triggered yet
+    
+    def test_rule_can_trigger(self):
+        """Test if rule can trigger."""
+        self.assertTrue(self.rule.can_trigger())
+        self.rule.is_enabled = False
+        self.assertFalse(self.rule.can_trigger())
+    
+    def test_rule_increment_trigger(self):
+        """Test incrementing trigger count."""
+        self.rule.increment_trigger()
+        self.assertEqual(self.rule.trigger_count, 1)
+        self.assertIsNotNone(self.rule.last_triggered)
 
 
 class AlertModelTest(TestCase):
@@ -153,6 +189,49 @@ class AlertModelTest(TestCase):
     def test_alert_str(self):
         """Test alert string representation."""
         self.assertEqual(str(self.alert), 'Test Alert - Alta')
+    
+    def test_alert_can_acknowledge(self):
+        """Test if alert can be acknowledged."""
+        self.alert.status = 'sent'
+        self.assertTrue(self.alert.can_acknowledge())
+        self.alert.status = 'resolved'
+        self.assertFalse(self.alert.can_acknowledge())
+    
+    def test_alert_can_resolve(self):
+        """Test if alert can be resolved."""
+        self.assertTrue(self.alert.can_resolve())
+        self.alert.status = 'resolved'
+        self.assertFalse(self.alert.can_resolve())
+    
+    def test_alert_acknowledge(self):
+        """Test acknowledging an alert."""
+        self.alert.status = 'sent'
+        result = self.alert.acknowledge(self.user)
+        self.assertTrue(result)
+        self.assertEqual(self.alert.status, 'acknowledged')
+        self.assertEqual(self.alert.acknowledged_by, self.user)
+        self.assertIsNotNone(self.alert.acknowledged_at)
+    
+    def test_alert_resolve(self):
+        """Test resolving an alert."""
+        result = self.alert.resolve(self.user, 'Fixed the issue')
+        self.assertTrue(result)
+        self.assertEqual(self.alert.status, 'resolved')
+        self.assertEqual(self.alert.resolved_by, self.user)
+        self.assertEqual(self.alert.resolution_notes, 'Fixed the issue')
+        self.assertIsNotNone(self.alert.resolved_at)
+    
+    def test_alert_is_critical(self):
+        """Test critical alert property."""
+        self.assertFalse(self.alert.is_critical)
+        self.alert.severity = 'critical'
+        self.assertTrue(self.alert.is_critical)
+    
+    def test_alert_age_hours(self):
+        """Test alert age calculation."""
+        age = self.alert.age_hours
+        self.assertIsInstance(age, float)
+        self.assertGreaterEqual(age, 0)
 
 
 class AlertAPITest(APITestCase):
@@ -270,6 +349,10 @@ class AlertAPITest(APITestCase):
     
     def test_acknowledge_alert(self):
         """Test acknowledging an alert."""
+        # Set alert to sent status first
+        self.alert.status = 'sent'
+        self.alert.save()
+        
         self.client.force_authenticate(user=self.analyst)
         url = reverse('alert-acknowledge', kwargs={'pk': self.alert.pk})
         response = self.client.post(url)

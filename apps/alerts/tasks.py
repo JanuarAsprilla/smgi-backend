@@ -13,8 +13,8 @@ import requests
 logger = logging.getLogger(__name__)
 
 
-@shared_task
-def send_alert(alert_id, resend=False):
+@shared_task(bind=True, max_retries=3, default_retry_delay=60)
+def send_alert(self, alert_id, resend=False):
     """
     Send an alert through configured channels.
     
@@ -79,11 +79,7 @@ def send_alert(alert_id, resend=False):
                     delivery_details[f'{channel.name}_{recipient.username}'] = result
                     
                     # Update channel statistics
-                    channel.total_sent += 1
-                    if result['status'] != 'success':
-                        channel.total_failed += 1
-                    channel.last_used = timezone.now()
-                    channel.save()
+                    channel.increment_stats(success=(result['status'] == 'success'))
                     
                 except Exception as e:
                     logger.error(f"Error sending alert via {channel.name}: {str(e)}")
@@ -121,6 +117,10 @@ def send_alert(alert_id, resend=False):
         return {'status': 'failed', 'error': 'Alert not found'}
     except Exception as e:
         logger.error(f"Error sending alert: {str(e)}")
+        # Retry the task if not at max retries
+        if self.request.retries < self.max_retries:
+            logger.info(f"Retrying alert {alert_id} (attempt {self.request.retries + 1})")
+            raise self.retry(exc=e)
         return {'status': 'failed', 'error': str(e)}
 
 
@@ -221,8 +221,8 @@ def send_in_app_alert(alert, channel, recipient):
     return {'status': 'success', 'response': 'In-app notification created'}
 
 
-@shared_task
-def test_alert_channel(channel_id, user_id):
+@shared_task(bind=True, max_retries=2)
+def test_alert_channel(self, channel_id, user_id):
     """
     Test an alert channel.
     
@@ -325,9 +325,7 @@ def create_alert_for_detection(detection_id):
                 send_alert.delay(alert.id)
                 
                 # Update rule
-                rule.trigger_count += 1
-                rule.last_triggered = timezone.now()
-                rule.save()
+                rule.increment_trigger()
                 
                 alerts_created += 1
         

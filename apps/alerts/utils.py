@@ -17,11 +17,16 @@ def render_alert_message(template_string, context_data):
     Returns:
         str: Rendered message
     """
+    if not template_string:
+        return ''
+    
     try:
         template = Template(template_string)
         context = Context(context_data)
         return template.render(context)
     except Exception as e:
+        import logging
+        logging.error(f"Error rendering template: {str(e)}")
         return template_string
 
 
@@ -102,6 +107,9 @@ def should_send_alert(alert, recipient):
         bool: True if alert should be sent
     """
     from .models import AlertSubscription
+    
+    if not alert or not recipient:
+        return False
     
     try:
         subscription = AlertSubscription.objects.get(user=recipient, is_enabled=True)
@@ -193,13 +201,16 @@ def get_alert_priority(severity):
     Returns:
         int: Priority (higher = more urgent)
     """
+    if not severity:
+        return 0
+    
     priorities = {
         'low': 1,
         'medium': 2,
         'high': 3,
         'critical': 4
     }
-    return priorities.get(severity, 0)
+    return priorities.get(severity.lower(), 0)
 
 
 def format_alert_for_channel(alert, channel_type):

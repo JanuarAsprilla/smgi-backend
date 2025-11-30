@@ -54,6 +54,8 @@ class AlertRuleSerializer(serializers.ModelSerializer):
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
     channel_names = serializers.SerializerMethodField()
     recipient_count = serializers.SerializerMethodField()
+    is_throttled = serializers.SerializerMethodField()
+    can_trigger = serializers.SerializerMethodField()
     
     class Meta:
         model = AlertRule
@@ -74,6 +76,8 @@ class AlertRuleSerializer(serializers.ModelSerializer):
             'throttle_minutes',
             'is_enabled',
             'is_active',
+            'is_throttled',
+            'can_trigger',
             'trigger_count',
             'last_triggered',
             'created_by',
@@ -90,6 +94,14 @@ class AlertRuleSerializer(serializers.ModelSerializer):
     def get_recipient_count(self, obj) -> int:
         """Get number of recipients."""
         return obj.recipients.count()
+    
+    def get_is_throttled(self, obj) -> bool:
+        """Check if rule is throttled."""
+        return obj.is_throttled()
+    
+    def get_can_trigger(self, obj) -> bool:
+        """Check if rule can trigger."""
+        return obj.can_trigger()
 
 
 class AlertLogSerializer(serializers.ModelSerializer):
@@ -126,6 +138,18 @@ class AlertSerializer(serializers.ModelSerializer):
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
     acknowledged_by_username = serializers.CharField(source='acknowledged_by.username', read_only=True, allow_null=True)
     resolved_by_username = serializers.CharField(source='resolved_by.username', read_only=True, allow_null=True)
+    is_critical = serializers.BooleanField(source='is_critical', read_only=True)
+    age_hours = serializers.FloatField(source='age_hours', read_only=True)
+    can_acknowledge = serializers.SerializerMethodField()
+    can_resolve = serializers.SerializerMethodField()
+    
+    def get_can_acknowledge(self, obj) -> bool:
+        """Check if alert can be acknowledged."""
+        return obj.can_acknowledge()
+    
+    def get_can_resolve(self, obj) -> bool:
+        """Check if alert can be resolved."""
+        return obj.can_resolve()
     
     class Meta:
         model = Alert
@@ -152,6 +176,10 @@ class AlertSerializer(serializers.ModelSerializer):
             'resolved_at',
             'resolution_notes',
             'is_active',
+            'is_critical',
+            'age_hours',
+            'can_acknowledge',
+            'can_resolve',
             'created_by',
             'created_by_username',
             'created_at',

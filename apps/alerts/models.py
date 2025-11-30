@@ -2,6 +2,7 @@
 Models for Alerts app.
 """
 from django.db import models
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from apps.users.models import User
 from apps.monitoring.models import Detection, Monitor, MonitoringProject
@@ -106,6 +107,22 @@ class AlertChannel(BaseModel):
     
     def __str__(self):
         return f"{self.name} ({self.get_channel_type_display()})"
+    
+    @property
+    def success_rate(self):
+        """Calculate success rate percentage."""
+        if self.total_sent == 0:
+            return 0.0
+        success = self.total_sent - self.total_failed
+        return round((success / self.total_sent) * 100, 2)
+    
+    def increment_stats(self, success=True):
+        """Increment channel statistics."""
+        self.total_sent += 1
+        if not success:
+            self.total_failed += 1
+        self.last_used = timezone.now()
+        self.save(update_fields=['total_sent', 'total_failed', 'last_used'])
 
 
 class AlertRule(BaseModel):
@@ -225,6 +242,24 @@ class AlertRule(BaseModel):
     
     def __str__(self):
         return self.name
+    
+    def is_throttled(self):
+        """Check if rule is currently throttled."""
+        if self.throttle_minutes == 0 or not self.last_triggered:
+            return False
+        
+        time_since_last = timezone.now() - self.last_triggered
+        return time_since_last.total_seconds() < self.throttle_minutes * 60
+    
+    def can_trigger(self):
+        """Check if rule can be triggered."""
+        return self.is_enabled and self.is_active and not self.is_throttled()
+    
+    def increment_trigger(self):
+        """Increment trigger count and update timestamp."""
+        self.trigger_count += 1
+        self.last_triggered = timezone.now()
+        self.save(update_fields=['trigger_count', 'last_triggered'])
 
 
 class Alert(BaseModel):
@@ -351,6 +386,46 @@ class Alert(BaseModel):
     
     def __str__(self):
         return f"{self.title} - {self.get_severity_display()}"
+    
+    def can_acknowledge(self):
+        """Check if alert can be acknowledged."""
+        return self.status in ['sent', 'failed'] and not self.acknowledged_at
+    
+    def can_resolve(self):
+        """Check if alert can be resolved."""
+        return self.status != 'resolved'
+    
+    def acknowledge(self, user):
+        """Acknowledge the alert."""
+        if not self.can_acknowledge():
+            return False
+        self.status = 'acknowledged'
+        self.acknowledged_by = user
+        self.acknowledged_at = timezone.now()
+        self.save(update_fields=['status', 'acknowledged_by', 'acknowledged_at'])
+        return True
+    
+    def resolve(self, user, notes=''):
+        """Resolve the alert."""
+        if not self.can_resolve():
+            return False
+        self.status = 'resolved'
+        self.resolved_by = user
+        self.resolved_at = timezone.now()
+        self.resolution_notes = notes
+        self.save(update_fields=['status', 'resolved_by', 'resolved_at', 'resolution_notes'])
+        return True
+    
+    @property
+    def is_critical(self):
+        """Check if alert is critical."""
+        return self.severity == 'critical'
+    
+    @property
+    def age_hours(self):
+        """Get age of alert in hours."""
+        delta = timezone.now() - self.created_at
+        return round(delta.total_seconds() / 3600, 1)
 
 
 class AlertLog(models.Model):
