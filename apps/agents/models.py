@@ -3,8 +3,15 @@ Models for Agents app.
 """
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+from django.core.validators import MinValueValidator, MaxValueValidator
 from apps.users.models import User
 from apps.geodata.models import Layer, Dataset
+from .validators import (
+    validate_agent_code,
+    validate_cron_expression,
+    validate_json_schema,
+    validate_agent_requirements
+)
 
 
 class BaseModel(models.Model):
@@ -131,18 +138,21 @@ class Agent(BaseModel):
     # Code and configuration
     code = models.TextField(
         _('código'),
+        validators=[validate_agent_code],
         help_text=_('Código Python del agente')
     )
     requirements = models.JSONField(
         _('dependencias'),
         default=list,
         blank=True,
+        validators=[validate_agent_requirements],
         help_text=_('Lista de paquetes Python requeridos')
     )
     parameters_schema = models.JSONField(
         _('esquema de parámetros'),
         default=dict,
         blank=True,
+        validators=[validate_json_schema],
         help_text=_('JSON Schema para validar parámetros de entrada')
     )
     default_parameters = models.JSONField(
@@ -211,6 +221,26 @@ class Agent(BaseModel):
     
     def __str__(self):
         return f"{self.name} v{self.version}"
+    
+    def clean(self):
+        """Validate model fields."""
+        from django.core.exceptions import ValidationError
+        from .validators import validate_parameters
+        
+        super().clean()
+        
+        # Validate default parameters against schema
+        if self.parameters_schema and self.default_parameters:
+            try:
+                validate_parameters(self.default_parameters, self.parameters_schema)
+            except ValidationError as e:
+                raise ValidationError({'default_parameters': e.message})
+    
+    def save(self, *args, **kwargs):
+        """Override save to call clean."""
+        if not self.pk or 'update_fields' not in kwargs:
+            self.full_clean()
+        super().save(*args, **kwargs)
     
     @property
     def success_rate(self):
@@ -384,6 +414,7 @@ class AgentSchedule(BaseModel):
         _('expresión cron'),
         max_length=100,
         blank=True,
+        validators=[validate_cron_expression],
         help_text=_('Para tipo cron (ej: 0 0 * * *)')
     )
     scheduled_time = models.DateTimeField(
@@ -442,6 +473,41 @@ class AgentSchedule(BaseModel):
     
     def __str__(self):
         return f"{self.name} - {self.agent.name}"
+    
+    def clean(self):
+        """Validate schedule configuration."""
+        from django.core.exceptions import ValidationError
+        
+        super().clean()
+        
+        # Validate schedule type requirements
+        if self.schedule_type == 'interval' and not self.interval_minutes:
+            raise ValidationError({
+                'interval_minutes': _('Este campo es requerido para tipo interval.')
+            })
+        
+        if self.schedule_type == 'cron' and not self.cron_expression:
+            raise ValidationError({
+                'cron_expression': _('Este campo es requerido para tipo cron.')
+            })
+        
+        if self.schedule_type == 'once' and not self.scheduled_time:
+            raise ValidationError({
+                'scheduled_time': _('Este campo es requerido para tipo once.')
+            })
+        
+        # Validate interval_minutes range
+        if self.schedule_type == 'interval' and self.interval_minutes:
+            if self.interval_minutes < 1:
+                raise ValidationError({
+                    'interval_minutes': _('El intervalo debe ser al menos 1 minuto.')
+                })
+    
+    def save(self, *args, **kwargs):
+        """Override save to call clean."""
+        if not self.pk or 'update_fields' not in kwargs:
+            self.full_clean()
+        super().save(*args, **kwargs)
 
 
 class AgentRating(models.Model):
@@ -463,6 +529,7 @@ class AgentRating(models.Model):
     rating = models.IntegerField(
         _('calificación'),
         choices=[(i, i) for i in range(1, 6)],
+        validators=[MinValueValidator(1), MaxValueValidator(5)],
         help_text=_('Calificación de 1 a 5 estrellas')
     )
     comment = models.TextField(

@@ -107,10 +107,37 @@ logger.info(f"Comparando {layer1.name} con {layer2.name}")
 threshold = parameters.get('threshold', 0.5)
 logger.info(f"Umbral de cambio: {threshold}")
 
-# TODO: Implementar lógica de detección de cambios
+# Implementar lógica básica de detección de cambios
+try:
+    # Obtener features de ambas capas
+    features1 = layer1.features.filter(is_active=True)
+    features2 = layer2.features.filter(is_active=True)
+    
+    count1 = features1.count()
+    count2 = features2.count()
+    
+    # Calcular diferencia relativa
+    if count1 > 0:
+        change_percentage = abs(count2 - count1) / count1
+    else:
+        change_percentage = 1.0 if count2 > 0 else 0.0
+    
+    # Determinar si hay cambio significativo
+    changes_detected = 1 if change_percentage >= threshold else 0
+    
+    logger.info(f"Features capa 1: {count1}, capa 2: {count2}")
+    logger.info(f"Cambio porcentual: {change_percentage:.2%}")
+    
+except Exception as e:
+    logger.error(f"Error en detección de cambios: {str(e)}")
+    changes_detected = -1
+    change_percentage = 0.0
 
 # Guardar resultados
-output_data['changes_detected'] = 0
+output_data['changes_detected'] = changes_detected
+output_data['change_percentage'] = round(change_percentage * 100, 2)
+output_data['layer1_features'] = count1
+output_data['layer2_features'] = count2
 output_data['threshold'] = threshold
 output_data['message'] = 'Análisis completado'
 

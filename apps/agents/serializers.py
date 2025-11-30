@@ -10,6 +10,7 @@ from .models import (
     AgentRating,
     AgentTemplate
 )
+from .validators import validate_parameters
 
 
 class AgentCategorySerializer(serializers.ModelSerializer):
@@ -171,6 +172,24 @@ class AgentExecutionCreateSerializer(serializers.ModelSerializer):
             'input_datasets',
             'parameters',
         ]
+    
+    def validate(self, data):
+        """Validate execution data."""
+        agent = data.get('agent')
+        parameters = data.get('parameters', {})
+        
+        # Validate parameters against agent schema
+        if agent and agent.parameters_schema:
+            try:
+                validate_parameters(parameters, agent.parameters_schema)
+            except serializers.ValidationError:
+                raise
+            except Exception as e:
+                raise serializers.ValidationError({
+                    'parameters': f'Error validando parámetros: {str(e)}'
+                })
+        
+        return data
 
 
 class AgentScheduleSerializer(serializers.ModelSerializer):

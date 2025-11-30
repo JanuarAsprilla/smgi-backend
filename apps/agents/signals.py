@@ -18,12 +18,37 @@ def agent_post_save(sender, instance, created, **kwargs):
         logger.info(f"New agent created: {instance.name}")
         
         # Send notification to admins about new agent
-        # TODO: Implement notification logic
+        try:
+            from apps.notifications.services import NotificationService
+            NotificationService.notify_admins(
+                title="Nuevo Agente Creado",
+                message=f"El usuario {instance.created_by.username if instance.created_by else 'Desconocido'} ha creado un nuevo agente: {instance.name}",
+                notification_type="agent_created",
+                related_object_id=instance.id,
+                related_object_type="agent"
+            )
+        except ImportError:
+            logger.warning("NotificationService not available, skipping notification")
+        except Exception as e:
+            logger.error(f"Error sending notification: {str(e)}")
     
     # If agent is published, notify followers
     if instance.status == 'published' and not created:
         logger.info(f"Agent published: {instance.name}")
-        # TODO: Implement notification logic
+        try:
+            from apps.notifications.services import NotificationService
+            NotificationService.notify_users(
+                title="Agente Publicado",
+                message=f"El agente '{instance.name}' ha sido publicado y está disponible en el marketplace.",
+                notification_type="agent_published",
+                related_object_id=instance.id,
+                related_object_type="agent",
+                user_ids=[instance.created_by.id] if instance.created_by else []
+            )
+        except ImportError:
+            logger.warning("NotificationService not available, skipping notification")
+        except Exception as e:
+            logger.error(f"Error sending notification: {str(e)}")
 
 
 @receiver(post_save, sender=AgentExecution)

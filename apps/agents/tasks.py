@@ -300,9 +300,69 @@ def notify_execution_completion(execution_id):
         if not execution.created_by or not execution.created_by.email:
             return {'status': 'skipped', 'reason': 'No user email'}
         
-        # TODO: Implement email notification
-        # For now, just log
-        logger.info(f"Would send notification to {execution.created_by.email} for execution {execution_id}")
+        # Send email and in-app notification
+        try:
+            from django.core.mail import send_mail
+            from django.conf import settings
+            
+            subject = f"Ejecución de Agente {'Completada' if execution.status == 'success' else 'Fallida'}"
+            
+            if execution.status == 'success':
+                message = f"""Hola {execution.created_by.get_full_name() or execution.created_by.username},
+
+Tu ejecución del agente '{execution.agent.name}' ha sido completada exitosamente.
+
+Detalles:
+- Nombre: {execution.name}
+- Tiempo de procesamiento: {execution.processing_time:.2f} segundos
+- Fecha: {execution.completed_at.strftime('%Y-%m-%d %H:%M:%S')}
+
+Puedes ver los resultados en: {settings.FRONTEND_URL}/agents/executions/{execution.id}
+
+Saludos,
+Equipo SMGI
+"""
+            else:
+                message = f"""Hola {execution.created_by.get_full_name() or execution.created_by.username},
+
+Tu ejecución del agente '{execution.agent.name}' ha fallado.
+
+Detalles:
+- Nombre: {execution.name}
+- Error: {execution.error_message[:200]}...
+- Fecha: {execution.completed_at.strftime('%Y-%m-%d %H:%M:%S')}
+
+Puedes revisar los logs en: {settings.FRONTEND_URL}/agents/executions/{execution.id}
+
+Saludos,
+Equipo SMGI
+"""
+            
+            send_mail(
+                subject,
+                message,
+                settings.DEFAULT_FROM_EMAIL,
+                [execution.created_by.email],
+                fail_silently=True,
+            )
+            
+            # Also send in-app notification
+            try:
+                from apps.notifications.services import NotificationService
+                NotificationService.notify_user(
+                    user_id=execution.created_by.id,
+                    title=subject,
+                    message=f"Ejecución del agente '{execution.agent.name}': {execution.status}",
+                    notification_type=f"execution_{execution.status}",
+                    related_object_id=execution.id,
+                    related_object_type="agent_execution"
+                )
+            except ImportError:
+                pass
+            
+            logger.info(f"Notification sent to {execution.created_by.email} for execution {execution_id}")
+        except Exception as e:
+            logger.error(f"Error sending email notification: {str(e)}")
         
         return {'status': 'success', 'message': 'Notification sent'}
         

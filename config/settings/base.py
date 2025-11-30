@@ -263,30 +263,18 @@ EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@smgi.com')
 
-# DRF Spectacular Settings (API Documentation)
-SPECTACULAR_SETTINGS = {
-    'TITLE': 'SMGI API',
-    'DESCRIPTION': 'Sistema de Monitoreo Geoespacial Inteligente - API Documentation',
-    'VERSION': '1.0.0',
-    'SERVE_INCLUDE_SCHEMA': False,
-    'COMPONENT_SPLIT_REQUEST': True,
-    'SCHEMA_PATH_PREFIX': '/api/v[0-9]',
-    'SERVE_PERMISSIONS': ['rest_framework.permissions.AllowAny'],
-    'SWAGGER_UI_SETTINGS': {
-        'deepLinking': True,
-        'persistAuthorization': True,
-        'displayOperationId': True,
-    },
-    'PREPROCESSING_HOOKS': [],
-    'POSTPROCESSING_HOOKS': [],
-    'ENUM_NAME_OVERRIDES': {},
-    'SWAGGER_UI_DIST': 'SIDECAR',
-    'SWAGGER_UI_FAVICON_HREF': 'SIDECAR',
-    'REDOC_DIST': 'SIDECAR',
-}
-
+# DRF Spectacular Settings (API Documentation) - Will be imported from spectacular.py
 # Importar configuración de Spectacular
-from .spectacular import SPECTACULAR_SETTINGS
+try:
+    from .spectacular import SPECTACULAR_SETTINGS
+except ImportError:
+    SPECTACULAR_SETTINGS = {
+        'TITLE': 'SMGI API',
+        'DESCRIPTION': 'Sistema de Monitoreo Geoespacial Inteligente - API Documentation',
+        'VERSION': '1.0.0',
+        'SERVE_INCLUDE_SCHEMA': False,
+        'COMPONENT_SPLIT_REQUEST': True,
+    }
 
 # ============================================================================
 # CORE APP - FILE MANAGEMENT
@@ -315,24 +303,41 @@ FILE_STORAGE_TTL = {
 # File Locking
 FILE_LOCK_TIMEOUT = 60  # segundos
 
-# Celery Beat Schedule (actualizar existente)
+# Celery Beat Schedule
 from celery.schedules import crontab
 
-CELERY_BEAT_SCHEDULE = getattr(locals(), 'CELERY_BEAT_SCHEDULE', {})
-CELERY_BEAT_SCHEDULE.update({
+CELERY_BEAT_SCHEDULE = {
+    # Core tasks
     'cleanup-expired-files': {
-        'task': 'core.cleanup_expired_files',
+        'task': 'apps.core.tasks.cleanup_expired_files',
         'schedule': crontab(minute=0),  # Cada hora
     },
     'cleanup-orphaned-locks': {
-        'task': 'core.cleanup_orphaned_locks',
+        'task': 'apps.core.tasks.cleanup_orphaned_locks',
         'schedule': crontab(minute=30),  # Cada hora, offset 30 min
     },
     'generate-storage-report': {
-        'task': 'core.generate_storage_report',
+        'task': 'apps.core.tasks.generate_storage_report',
         'schedule': crontab(hour=6, minute=0),  # Diario a las 6 AM
     },
-})
+    # Agent tasks
+    'process-scheduled-agents': {
+        'task': 'apps.agents.tasks.process_scheduled_agents',
+        'schedule': crontab(minute='*/1'),  # Cada minuto
+    },
+    'update-agent-statistics': {
+        'task': 'apps.agents.tasks.update_agent_statistics',
+        'schedule': crontab(hour=0, minute=0),  # Diario a medianoche
+    },
+    'calculate-agent-ratings': {
+        'task': 'apps.agents.tasks.calculate_agent_ratings',
+        'schedule': crontab(minute=0),  # Cada hora
+    },
+    'cleanup-old-executions': {
+        'task': 'apps.agents.tasks.cleanup_old_executions',
+        'schedule': crontab(hour=2, minute=0),  # Diario a las 2 AM
+    },
+}
 
 # ============================================================================
 # CONFIGURACIÓN PARA ARCHIVOS GRANDES (1GB+)
