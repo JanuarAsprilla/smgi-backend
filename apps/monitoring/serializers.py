@@ -2,7 +2,6 @@
 Serializers for Monitoring app.
 """
 from rest_framework import serializers
-from rest_framework_gis.serializers import GeoFeatureModelSerializer
 from .models import (
     MonitoringProject,
     Monitor,
@@ -119,8 +118,8 @@ class ChangeRecordSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
 
-class DetectionSerializer(GeoFeatureModelSerializer):
-    """GeoJSON serializer for Detection model."""
+class DetectionSerializer(serializers.ModelSerializer):
+    """Serializer for Detection model with geometry support."""
     monitor_name = serializers.CharField(source='monitor.name', read_only=True)
     project_name = serializers.CharField(source='monitor.project.name', read_only=True)
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
@@ -129,7 +128,6 @@ class DetectionSerializer(GeoFeatureModelSerializer):
     
     class Meta:
         model = Detection
-        geo_field = 'location'
         fields = [
             'id',
             'monitor',

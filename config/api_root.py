@@ -28,6 +28,7 @@ def api_root(request, format=None):
             'monitoring': base_url + 'monitoring/',
             'alerts': base_url + 'alerts/',
             'automation': base_url + 'automation/',
+            'notifications': base_url + 'notifications/',
         },
         'authentication': {
             'login': base_url + 'users/login/',

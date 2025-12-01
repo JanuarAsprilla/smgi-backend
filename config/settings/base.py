@@ -264,6 +264,14 @@ EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@smgi.com')
 
+# SMS/Twilio Configuration (for notifications)
+TWILIO_ACCOUNT_SID = config('TWILIO_ACCOUNT_SID', default='')
+TWILIO_AUTH_TOKEN = config('TWILIO_AUTH_TOKEN', default='')
+TWILIO_PHONE_NUMBER = config('TWILIO_PHONE_NUMBER', default='')
+
+# Frontend URL (for emails and notifications)
+FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:3000')
+
 # DRF Spectacular Settings (API Documentation) - Will be imported from spectacular.py
 # Importar configuración de Spectacular
 try:

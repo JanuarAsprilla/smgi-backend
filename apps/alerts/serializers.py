@@ -138,8 +138,8 @@ class AlertSerializer(serializers.ModelSerializer):
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
     acknowledged_by_username = serializers.CharField(source='acknowledged_by.username', read_only=True, allow_null=True)
     resolved_by_username = serializers.CharField(source='resolved_by.username', read_only=True, allow_null=True)
-    is_critical = serializers.BooleanField(source='is_critical', read_only=True)
-    age_hours = serializers.FloatField(source='age_hours', read_only=True)
+    is_critical = serializers.BooleanField(read_only=True)
+    age_hours = serializers.FloatField(read_only=True)
     can_acknowledge = serializers.SerializerMethodField()
     can_resolve = serializers.SerializerMethodField()
     

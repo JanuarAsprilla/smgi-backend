@@ -103,7 +103,7 @@ SPECTACULAR_SETTINGS = {
     
     # Postprocessing hooks
     'POSTPROCESSING_HOOKS': [
-        'drf_spectacular.contrib.djangorestframework_camel_case.camelize_serializer_fields',
+        # 'drf_spectacular.contrib.djangorestframework_camel_case.camelize_serializer_fields',
     ],
     
     # Otras configuraciones
