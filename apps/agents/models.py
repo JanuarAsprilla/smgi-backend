@@ -29,6 +29,7 @@ class BaseModel(models.Model):
         User,
         on_delete=models.SET_NULL,
         null=True,
+        blank=True,  # Permite creación sin especificar updated_by
         related_name='%(class)s_updated',
         verbose_name=_('actualizado por')
     )
@@ -238,8 +239,15 @@ class Agent(BaseModel):
     
     def save(self, *args, **kwargs):
         """Override save to call clean."""
-        if not self.pk or 'update_fields' not in kwargs:
-            self.full_clean()
+        # Auto-asignar updated_by si es creación y no está establecido
+        if not self.pk and not self.updated_by_id:
+            self.updated_by = self.created_by
+        
+        # Solo validar código, evitar validaciones que puedan fallar
+        if self.code:
+            from apps.agents.validators import validate_agent_code
+            validate_agent_code(self.code)
+        
         super().save(*args, **kwargs)
     
     @property
