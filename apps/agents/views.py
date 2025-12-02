@@ -52,8 +52,8 @@ class AgentCategoryViewSet(viewsets.ModelViewSet):
         return [IsAuthenticated(), IsDeveloperOrAbove()]
     
     def perform_create(self, serializer):
-        """Set created_by field when creating."""
-        serializer.save(created_by=self.request.user)
+        """Set created_by and updated_by fields when creating."""
+        serializer.save(created_by=self.request.user, updated_by=self.request.user)
     
     def perform_update(self, serializer):
         """Set updated_by field when updating."""
@@ -104,8 +104,8 @@ class AgentViewSet(viewsets.ModelViewSet):
         return [IsAuthenticated()]
     
     def perform_create(self, serializer):
-        """Set created_by field when creating."""
-        serializer.save(created_by=self.request.user)
+        """Set created_by and updated_by fields when creating."""
+        serializer.save(created_by=self.request.user, updated_by=self.request.user)
     
     def perform_update(self, serializer):
         """Set updated_by field when updating."""
@@ -368,7 +368,7 @@ class AgentExecutionViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         """Create and execute agent."""
-        execution = serializer.save(created_by=self.request.user)
+        execution = serializer.save(created_by=self.request.user, updated_by=self.request.user)
         
         # Launch async task
         task = execute_agent.delay(execution.id)
@@ -453,7 +453,7 @@ class AgentScheduleViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         """Create schedule and calculate next run."""
-        schedule = serializer.save(created_by=self.request.user)
+        schedule = serializer.save(created_by=self.request.user, updated_by=self.request.user)
         
         # Calculate next run
         from .utils import calculate_next_run

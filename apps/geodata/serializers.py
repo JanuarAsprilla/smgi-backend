@@ -146,3 +146,108 @@ class SyncLogSerializer(serializers.ModelSerializer):
             delta = obj.completed_at - obj.started_at
             return delta.total_seconds()
         return None
+
+
+class URLLayerSerializer(serializers.Serializer):
+    """Serializer for creating layers from external URL."""
+    name = serializers.CharField(max_length=255)
+    description = serializers.CharField(required=False, allow_blank=True)
+    url = serializers.URLField(help_text="URL del archivo GeoJSON, KML, o servicio WMS/WFS")
+    service_type = serializers.ChoiceField(
+        choices=['geojson', 'kml', 'wms', 'wfs'],
+        default='geojson',
+        help_text="Tipo de servicio o formato del archivo"
+    )
+    is_public = serializers.BooleanField(default=False)
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=50),
+        required=False,
+        allow_empty=True
+    )
+    
+    def validate_url(self, value):
+        """Validate URL is accessible."""
+        if not value.startswith(('http://', 'https://')):
+            raise serializers.ValidationError("La URL debe comenzar con http:// o https://")
+        return value
+
+
+class ArcGISLayerSerializer(serializers.Serializer):
+    """Serializer for creating layers from ArcGIS services."""
+    name = serializers.CharField(max_length=255)
+    description = serializers.CharField(required=False, allow_blank=True)
+    service_url = serializers.URLField(help_text="URL del servicio ArcGIS (MapServer o FeatureServer)")
+    layer_id = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text="ID de la capa en el servicio (opcional, usa 0 por defecto)"
+    )
+    username = serializers.CharField(required=False, allow_blank=True, help_text="Usuario para servicios protegidos")
+    password = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        write_only=True,
+        help_text="Contraseña para servicios protegidos"
+    )
+    is_public = serializers.BooleanField(default=False)
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=50),
+        required=False,
+        allow_empty=True
+    )
+    
+    def validate_service_url(self, value):
+        """Validate ArcGIS service URL."""
+        if 'MapServer' not in value and 'FeatureServer' not in value:
+            raise serializers.ValidationError(
+                "La URL debe ser un servicio MapServer o FeatureServer de ArcGIS"
+            )
+        return value
+
+
+class DatabaseLayerSerializer(serializers.Serializer):
+    """Serializer for creating layers from database connections."""
+    name = serializers.CharField(max_length=255)
+    description = serializers.CharField(required=False, allow_blank=True)
+    db_type = serializers.ChoiceField(
+        choices=['postgresql', 'mysql', 'oracle', 'sqlserver'],
+        default='postgresql',
+        help_text="Tipo de base de datos"
+    )
+    host = serializers.CharField(max_length=255, help_text="Host de la base de datos")
+    port = serializers.IntegerField(help_text="Puerto de la base de datos")
+    database = serializers.CharField(max_length=255, help_text="Nombre de la base de datos")
+    schema = serializers.CharField(
+        max_length=255,
+        required=False,
+        default='public',
+        help_text="Schema de la base de datos"
+    )
+    table = serializers.CharField(max_length=255, help_text="Nombre de la tabla con datos geoespaciales")
+    geometry_column = serializers.CharField(
+        max_length=255,
+        default='geom',
+        help_text="Nombre de la columna con geometría"
+    )
+    username = serializers.CharField(max_length=255, help_text="Usuario de la base de datos")
+    password = serializers.CharField(
+        max_length=255,
+        write_only=True,
+        help_text="Contraseña de la base de datos"
+    )
+    srid = serializers.IntegerField(
+        default=4326,
+        help_text="Sistema de referencia espacial (SRID)"
+    )
+    is_public = serializers.BooleanField(default=False)
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=50),
+        required=False,
+        allow_empty=True
+    )
+    
+    def validate_port(self, value):
+        """Validate port number."""
+        if value < 1 or value > 65535:
+            raise serializers.ValidationError("El puerto debe estar entre 1 y 65535")
+        return value

@@ -74,3 +74,6 @@ Thumbs.db
 # Database
 *.sqlite3
 *.db
+data/exports/
+*.geojson
+media/

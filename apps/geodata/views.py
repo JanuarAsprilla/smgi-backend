@@ -28,6 +28,9 @@ from .serializers import (
     FeatureCreateSerializer,
     DatasetSerializer,
     SyncLogSerializer,
+    URLLayerSerializer,
+    ArcGISLayerSerializer,
+    DatabaseLayerSerializer,
 )
 from .serializers_export import ExportRequestSerializer
 from .filters import DataSourceFilter, LayerFilter, FeatureFilter
@@ -191,7 +194,7 @@ class LayerViewSet(ExportMixin, viewsets.ModelViewSet):
         return queryset.order_by('-created_at')
     
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+        serializer.save(created_by=self.request.user,)
     
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)
@@ -475,6 +478,399 @@ class LayerViewSet(ExportMixin, viewsets.ModelViewSet):
             'original_filename': layer.original_filename,
             'file_size': layer.file_size,
         })
+
+    @action(detail=False, methods=['post'], url_path='from-url')
+    def from_url(self, request):
+        """
+        Crear capa desde URL externa (GeoJSON, KML, WMS, WFS).
+        
+        POST /api/v1/geodata/layers/from-url/
+        {
+            "name": "Mi Capa",
+            "description": "Descripción opcional",
+            "url": "https://example.com/data.geojson",
+            "service_type": "geojson",
+            "is_public": false,
+            "tags": ["tag1", "tag2"]
+        }
+        """
+        serializer = URLLayerSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        data = serializer.validated_data
+        
+        try:
+            import requests
+            import geopandas as gpd
+            
+            # Descargar datos desde URL
+            logger.info(f"Fetching data from URL: {data['url']}")
+            response = requests.get(data['url'], timeout=30)
+            response.raise_for_status()
+            
+            # Procesar según el tipo de servicio
+            temp_dir = tempfile.mkdtemp()
+            try:
+                service_type = data['service_type']
+                
+                if service_type == 'geojson':
+                    # Cargar GeoJSON directamente
+                    gdf = gpd.read_file(data['url'])
+                    
+                elif service_type == 'kml':
+                    # Guardar y cargar KML
+                    temp_file = os.path.join(temp_dir, 'data.kml')
+                    with open(temp_file, 'wb') as f:
+                        f.write(response.content)
+                    gdf = gpd.read_file(temp_file, driver='KML')
+                    
+                elif service_type in ['wms', 'wfs']:
+                    return Response({
+                        'error': f'Tipo de servicio {service_type} aún no soportado. Use geojson o kml.'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                else:
+                    return Response({
+                        'error': f'Tipo de servicio no reconocido: {service_type}'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Reproyectar a EPSG:4326 si es necesario
+                if gdf.crs and gdf.crs.to_epsg() != 4326:
+                    logger.info(f"Reprojecting from {gdf.crs} to EPSG:4326")
+                    gdf = gdf.to_crs(epsg=4326)
+                elif gdf.crs is None:
+                    gdf = gdf.set_crs(epsg=4326)
+                
+                # Detectar tipo de geometría
+                geom_types = gdf.geometry.geom_type.unique()
+                if len(geom_types) > 1:
+                    geom_type = 'GEOMETRY'
+                else:
+                    geom_type = str(geom_types[0]).upper()
+                
+                # Crear capa
+                layer = Layer.objects.create(
+                    name=data['name'],
+                    description=data.get('description', ''),
+                    geometry_type=geom_type,
+                    layer_type='vector',
+                    srid=4326,
+                    created_by=request.user,
+                    is_public=data.get('is_public', False),
+                    tags=data.get('tags', []),
+                    feature_count=0
+                )
+                
+                # Crear features
+                features_created = self._create_features_batch(layer, gdf, request.user)
+                
+                if features_created > 0:
+                    layer.feature_count = features_created
+                    layer.save(update_fields=['feature_count'])
+                else:
+                    layer.delete()
+                    raise ValueError('No se pudieron crear features válidos')
+                
+                return Response({
+                    'message': f'Capa "{layer.name}" creada desde URL exitosamente',
+                    'layer': {
+                        'id': layer.id,
+                        'name': layer.name,
+                        'description': layer.description,
+                        'geometry_type': layer.geometry_type,
+                        'feature_count': layer.feature_count,
+                        'source_url': data['url'],
+                    }
+                }, status=status.HTTP_201_CREATED)
+                
+            finally:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                
+        except requests.RequestException as e:
+            logger.error(f"Error fetching URL: {str(e)}")
+            return Response({
+                'error': f'Error al acceder a la URL: {str(e)}'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Error creating layer from URL: {str(e)}", exc_info=True)
+            return Response({
+                'error': f'Error al crear capa: {str(e)}'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'], url_path='from-arcgis')
+    def from_arcgis(self, request):
+        """
+        Crear capa desde servicio ArcGIS (MapServer o FeatureServer).
+        
+        POST /api/v1/geodata/layers/from-arcgis/
+        {
+            "name": "Mi Capa ArcGIS",
+            "description": "Descripción opcional",
+            "service_url": "https://services.arcgis.com/.../MapServer/0",
+            "layer_id": 0,
+            "username": "opcional",
+            "password": "opcional",
+            "is_public": false,
+            "tags": ["arcgis", "external"]
+        }
+        """
+        serializer = ArcGISLayerSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        data = serializer.validated_data
+        
+        try:
+            import requests
+            import geopandas as gpd
+            from io import BytesIO
+            
+            service_url = data['service_url']
+            layer_id = data.get('layer_id', 0)
+            
+            # Construir URL de query
+            if not service_url.endswith('/'):
+                service_url += '/'
+            
+            # URL para obtener metadata
+            metadata_url = f"{service_url}?f=json"
+            
+            # Preparar autenticación si es necesaria
+            auth = None
+            if data.get('username') and data.get('password'):
+                auth = (data['username'], data['password'])
+            
+            logger.info(f"Fetching ArcGIS metadata from: {metadata_url}")
+            response = requests.get(metadata_url, auth=auth, timeout=30)
+            response.raise_for_status()
+            metadata = response.json()
+            
+            # URL para obtener features (GeoJSON)
+            query_url = f"{service_url}/query"
+            params = {
+                'where': '1=1',
+                'outFields': '*',
+                'f': 'geojson',
+                'returnGeometry': 'true'
+            }
+            
+            logger.info(f"Fetching features from: {query_url}")
+            response = requests.get(query_url, params=params, auth=auth, timeout=60)
+            response.raise_for_status()
+            
+            # Cargar GeoJSON en GeoDataFrame
+            geojson_data = response.json()
+            gdf = gpd.GeoDataFrame.from_features(geojson_data['features'])
+            
+            if len(gdf) == 0:
+                raise ValueError('El servicio no contiene features')
+            
+            # Asegurar CRS EPSG:4326
+            if gdf.crs is None:
+                gdf = gdf.set_crs(epsg=4326)
+            elif gdf.crs.to_epsg() != 4326:
+                gdf = gdf.to_crs(epsg=4326)
+            
+            # Detectar tipo de geometría
+            geom_types = gdf.geometry.geom_type.unique()
+            if len(geom_types) > 1:
+                geom_type = 'GEOMETRY'
+            else:
+                geom_type = str(geom_types[0]).upper()
+            
+            # Crear capa
+            layer = Layer.objects.create(
+                name=data['name'],
+                description=data.get('description', ''),
+                geometry_type=geom_type,
+                layer_type='vector',
+                srid=4326,
+                created_by=request.user,
+                is_public=data.get('is_public', False),
+                tags=data.get('tags', []),
+                metadata={
+                    'source': 'arcgis',
+                    'service_url': service_url,
+                    'layer_id': layer_id,
+                    'service_metadata': metadata
+                },
+                feature_count=0
+            )
+            
+            # Crear features
+            features_created = self._create_features_batch(layer, gdf, request.user)
+            
+            if features_created > 0:
+                layer.feature_count = features_created
+                layer.save(update_fields=['feature_count'])
+            else:
+                layer.delete()
+                raise ValueError('No se pudieron crear features válidos')
+            
+            return Response({
+                'message': f'Capa "{layer.name}" creada desde ArcGIS exitosamente',
+                'layer': {
+                    'id': layer.id,
+                    'name': layer.name,
+                    'description': layer.description,
+                    'geometry_type': layer.geometry_type,
+                    'feature_count': layer.feature_count,
+                    'service_url': service_url,
+                }
+            }, status=status.HTTP_201_CREATED)
+            
+        except requests.RequestException as e:
+            logger.error(f"Error fetching ArcGIS service: {str(e)}")
+            return Response({
+                'error': f'Error al acceder al servicio ArcGIS: {str(e)}'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Error creating layer from ArcGIS: {str(e)}", exc_info=True)
+            return Response({
+                'error': f'Error al crear capa desde ArcGIS: {str(e)}'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'], url_path='from-database')
+    def from_database(self, request):
+        """
+        Crear capa desde conexión a base de datos externa.
+        
+        POST /api/v1/geodata/layers/from-database/
+        {
+            "name": "Mi Capa DB",
+            "description": "Descripción opcional",
+            "db_type": "postgresql",
+            "host": "localhost",
+            "port": 5432,
+            "database": "gis_db",
+            "schema": "public",
+            "table": "mi_tabla",
+            "geometry_column": "geom",
+            "username": "user",
+            "password": "pass",
+            "srid": 4326,
+            "is_public": false,
+            "tags": ["database", "external"]
+        }
+        """
+        serializer = DatabaseLayerSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        data = serializer.validated_data
+        
+        try:
+            import geopandas as gpd
+            from sqlalchemy import create_engine
+            
+            # Construir connection string según el tipo de DB
+            db_type = data['db_type']
+            host = data['host']
+            port = data['port']
+            database = data['database']
+            username = data['username']
+            password = data['password']
+            schema = data.get('schema', 'public')
+            table = data['table']
+            geom_col = data.get('geometry_column', 'geom')
+            srid = data.get('srid', 4326)
+            
+            if db_type == 'postgresql':
+                conn_string = f"postgresql://{username}:{password}@{host}:{port}/{database}"
+            elif db_type == 'mysql':
+                conn_string = f"mysql+pymysql://{username}:{password}@{host}:{port}/{database}"
+            elif db_type == 'oracle':
+                conn_string = f"oracle+cx_oracle://{username}:{password}@{host}:{port}/{database}"
+            elif db_type == 'sqlserver':
+                conn_string = f"mssql+pyodbc://{username}:{password}@{host}:{port}/{database}"
+            else:
+                return Response({
+                    'error': f'Tipo de base de datos no soportado: {db_type}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            logger.info(f"Connecting to {db_type} database: {host}:{port}/{database}")
+            
+            # Crear engine de SQLAlchemy
+            engine = create_engine(conn_string)
+            
+            # Leer datos geoespaciales
+            query = f'SELECT * FROM {schema}.{table}'
+            logger.info(f"Executing query: {query}")
+            
+            gdf = gpd.read_postgis(
+                query,
+                engine,
+                geom_col=geom_col,
+                crs=f'EPSG:{srid}'
+            )
+            
+            if len(gdf) == 0:
+                raise ValueError('La tabla no contiene registros')
+            
+            # Reproyectar a EPSG:4326 si es necesario
+            if gdf.crs and gdf.crs.to_epsg() != 4326:
+                logger.info(f"Reprojecting from EPSG:{srid} to EPSG:4326")
+                gdf = gdf.to_crs(epsg=4326)
+            elif gdf.crs is None:
+                gdf = gdf.set_crs(epsg=4326)
+            
+            # Detectar tipo de geometría
+            geom_types = gdf.geometry.geom_type.unique()
+            if len(geom_types) > 1:
+                geom_type = 'GEOMETRY'
+            else:
+                geom_type = str(geom_types[0]).upper()
+            
+            # Crear capa
+            layer = Layer.objects.create(
+                name=data['name'],
+                description=data.get('description', ''),
+                geometry_type=geom_type,
+                layer_type='vector',
+                srid=4326,
+                created_by=request.user,
+                is_public=data.get('is_public', False),
+                tags=data.get('tags', []),
+                metadata={
+                    'source': 'database',
+                    'db_type': db_type,
+                    'host': host,
+                    'database': database,
+                    'schema': schema,
+                    'table': table,
+                    'geometry_column': geom_col,
+                    'original_srid': srid
+                },
+                feature_count=0
+            )
+            
+            # Crear features
+            features_created = self._create_features_batch(layer, gdf, request.user)
+            
+            # Cerrar conexión
+            engine.dispose()
+            
+            if features_created > 0:
+                layer.feature_count = features_created
+                layer.save(update_fields=['feature_count'])
+            else:
+                layer.delete()
+                raise ValueError('No se pudieron crear features válidos')
+            
+            return Response({
+                'message': f'Capa "{layer.name}" creada desde base de datos exitosamente',
+                'layer': {
+                    'id': layer.id,
+                    'name': layer.name,
+                    'description': layer.description,
+                    'geometry_type': layer.geometry_type,
+                    'feature_count': layer.feature_count,
+                    'source': f'{db_type}://{host}:{port}/{database}/{schema}.{table}',
+                }
+            }, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            logger.error(f"Error creating layer from database: {str(e)}", exc_info=True)
+            return Response({
+                'error': f'Error al conectar con la base de datos: {str(e)}'
+            }, status=status.HTTP_400_BAD_REQUEST)
 
 
 class FeatureViewSet(viewsets.ModelViewSet):

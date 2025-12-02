@@ -28,7 +28,8 @@ def validate_agent_code(code):
         r'\b__import__\b',
         r'\bopen\s*\(',
         r'\bfile\s*\(',
-        r'\binput\s*\(',
+        # MODIFICADO: Solo detectar input() como función, no input_layers o input_data
+        r'(?<![_a-zA-Z])input\s*\(',  # input( pero no algo_input(
         r'\braw_input\s*\(',
     ]
     
