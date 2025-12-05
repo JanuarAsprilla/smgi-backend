@@ -8,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q, Count
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema
 from .models import (
     MonitoringProject,
     Monitor,
@@ -478,6 +479,11 @@ class MonitoringStatisticsViewSet(viewsets.ViewSet):
     """
     permission_classes = [IsAuthenticated]
     
+    @extend_schema(
+        description='Obtener estadísticas generales de monitoreo',
+        responses={200: dict},
+        tags=['Monitoring - Statistics']
+    )
     def list(self, request):
         """Get general monitoring statistics."""
         # Filter by user if not staff

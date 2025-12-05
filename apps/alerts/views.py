@@ -8,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q, Count
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema
 from .models import (
     AlertChannel,
     AlertRule,
@@ -399,6 +400,11 @@ class AlertStatisticsViewSet(viewsets.ViewSet):
     """
     permission_classes = [IsAuthenticated]
     
+    @extend_schema(
+        description='Obtener estadísticas generales de alertas',
+        responses={200: dict},
+        tags=['Alerts - Statistics']
+    )
     def list(self, request):
         """Get general alert statistics."""
         # Filter by user if not staff

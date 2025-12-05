@@ -16,9 +16,12 @@ class NotificationViewSet(viewsets.ModelViewSet):
     
     serializer_class = NotificationSerializer
     permission_classes = [IsAuthenticated]
+    queryset = Notification.objects.none()  # Evitar error en spectacular
     
     def get_queryset(self):
         """Get notifications for the current user."""
+        if getattr(self, 'swagger_fake_view', False):
+            return Notification.objects.none()
         return Notification.objects.filter(user=self.request.user)
     
     @action(detail=True, methods=['post'])

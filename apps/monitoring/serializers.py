@@ -2,6 +2,8 @@
 Serializers for Monitoring app.
 """
 from rest_framework import serializers
+from rest_framework_gis.serializers import GeoFeatureModelSerializer
+from rest_framework_gis.fields import GeometryField
 from .models import (
     MonitoringProject,
     Monitor,
@@ -17,6 +19,7 @@ class MonitoringProjectSerializer(serializers.ModelSerializer):
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
     monitor_count = serializers.SerializerMethodField()
     detection_count = serializers.SerializerMethodField()
+    area_of_interest = GeometryField(allow_null=True, required=False)
     
     class Meta:
         model = MonitoringProject
@@ -97,6 +100,8 @@ class MonitorSerializer(serializers.ModelSerializer):
 class ChangeRecordSerializer(serializers.ModelSerializer):
     """Serializer for ChangeRecord model."""
     layer_name = serializers.CharField(source='layer.name', read_only=True)
+    before_geometry = GeometryField(read_only=True, allow_null=True)
+    after_geometry = GeometryField(read_only=True, allow_null=True)
     
     class Meta:
         model = ChangeRecord
@@ -125,6 +130,7 @@ class DetectionSerializer(serializers.ModelSerializer):
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
     reviewed_by_username = serializers.CharField(source='reviewed_by.username', read_only=True, allow_null=True)
     change_count = serializers.SerializerMethodField()
+    affected_area = GeometryField(read_only=True, allow_null=True)
     
     class Meta:
         model = Detection

@@ -40,7 +40,7 @@ class AgentSerializer(serializers.ModelSerializer):
     """Serializer for Agent model."""
     category_name = serializers.CharField(source='category.name', read_only=True)
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
-    success_rate = serializers.ReadOnlyField()
+    success_rate = serializers.FloatField(read_only=True)
     
     class Meta:
         model = Agent
@@ -119,7 +119,7 @@ class AgentExecutionSerializer(serializers.ModelSerializer):
     """Serializer for AgentExecution model."""
     agent_name = serializers.CharField(source='agent.name', read_only=True)
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
-    duration = serializers.ReadOnlyField()
+    duration = serializers.FloatField(read_only=True)
     
     class Meta:
         model = AgentExecution

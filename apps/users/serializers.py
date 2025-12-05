@@ -22,10 +22,10 @@ class AreaSerializer(serializers.ModelSerializer):
         model = Area
         fields = ['id', 'name', 'description', 'privacy', 'admin_count', 'member_count', 'created_at']
     
-    def get_admin_count(self, obj):
+    def get_admin_count(self, obj) -> int:
         return obj.admins.count()
     
-    def get_member_count(self, obj):
+    def get_member_count(self, obj) -> int:
         return obj.members.count()
 
 

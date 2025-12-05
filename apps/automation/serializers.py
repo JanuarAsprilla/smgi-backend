@@ -39,7 +39,7 @@ class WorkflowSerializer(serializers.ModelSerializer):
     """Serializer for Workflow model."""
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
     task_count = serializers.SerializerMethodField()
-    success_rate = serializers.ReadOnlyField()
+    success_rate = serializers.FloatField(read_only=True)
     can_execute = serializers.SerializerMethodField()
     
     class Meta:
@@ -99,7 +99,7 @@ class WorkflowDetailSerializer(WorkflowSerializer):
 class TaskExecutionSerializer(serializers.ModelSerializer):
     """Serializer for TaskExecution model."""
     task_name = serializers.CharField(source='task.name', read_only=True)
-    duration = serializers.ReadOnlyField()
+    duration = serializers.FloatField(read_only=True)
     
     class Meta:
         model = TaskExecution
@@ -125,7 +125,7 @@ class WorkflowExecutionSerializer(serializers.ModelSerializer):
     """Serializer for WorkflowExecution model."""
     workflow_name = serializers.CharField(source='workflow.name', read_only=True)
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
-    duration = serializers.ReadOnlyField()
+    duration = serializers.FloatField(read_only=True)
     progress = serializers.SerializerMethodField()
     
     class Meta:

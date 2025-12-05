@@ -128,7 +128,7 @@ class SyncLogSerializer(serializers.ModelSerializer):
     """Serializer for SyncLog model."""
     data_source_name = serializers.CharField(source='data_source.name', read_only=True, allow_null=True)
     layer_name = serializers.CharField(source='layer.name', read_only=True, allow_null=True)
-    duration = serializers.SerializerMethodField()
+    duration = serializers.FloatField(read_only=True, source='get_duration')
     
     class Meta:
         model = SyncLog

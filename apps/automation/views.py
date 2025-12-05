@@ -8,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q, Count
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema
 from .models import (
     Workflow,
     WorkflowTask,
@@ -429,6 +430,11 @@ class AutomationStatisticsViewSet(viewsets.ViewSet):
     """
     permission_classes = [IsAuthenticated]
     
+    @extend_schema(
+        description='Obtener estadísticas generales de automatización',
+        responses={200: dict},
+        tags=['Automation - Statistics']
+    )
     def list(self, request):
         """Get general automation statistics."""
         # Filter by user if not staff

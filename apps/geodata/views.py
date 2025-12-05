@@ -8,6 +8,8 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema, OpenApiParameter
+from drf_spectacular.types import OpenApiTypes
 from django.contrib.gis.geos import GEOSGeometry
 from django.db.models import Q
 from django.http import FileResponse, HttpResponse
@@ -111,6 +113,18 @@ class ExportMixin:
                 'message': f'Error: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name='format_type',
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description='Formato de exportación (shapefile, geojson, kml, gpkg)',
+                enum=['shapefile', 'geojson', 'kml', 'gpkg']
+            )
+        ],
+        description='Genera y descarga archivo en el formato especificado'
+    )
     @action(detail=True, methods=['get'], url_path='download/(?P<format_type>[^/.]+)')
     def download_export(self, request, pk=None, format_type=None):
         """Genera y descarga archivo directamente."""
