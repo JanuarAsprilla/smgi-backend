@@ -375,3 +375,68 @@ GEODATA_ASYNC_THRESHOLD = 50 * 1024 * 1024  # 50MB
 
 # Directorio para uploads grandes
 GEODATA_UPLOAD_DIR = BASE_DIR / 'data' / 'uploads'
+
+# =============================================
+# CONFIGURACIÓN DE PRODUCCIÓN - RAILWAY
+# Agregar este código AL FINAL de config/settings.py
+# =============================================
+
+import os
+
+# Detectar si estamos en Railway (producción)
+if os.environ.get('RAILWAY_ENVIRONMENT'):
+    import dj_database_url
+    
+    # Desactivar debug en producción
+    DEBUG = False
+    
+    # Clave secreta desde variable de entorno
+    SECRET_KEY = os.environ.get('SECRET_KEY', SECRET_KEY)
+    
+    # Hosts permitidos
+    ALLOWED_HOSTS = [
+        '.railway.app',
+        '.up.railway.app',
+        'localhost',
+        '127.0.0.1',
+    ]
+    
+    # Base de datos desde DATABASE_URL
+    DATABASE_URL = os.environ.get('DATABASE_URL')
+    if DATABASE_URL:
+        DATABASES = {
+            'default': dj_database_url.config(
+                default=DATABASE_URL,
+                conn_max_age=600,
+            )
+        }
+    
+    # Redis para Celery (si está disponible)
+    REDIS_URL = os.environ.get('REDIS_URL')
+    if REDIS_URL:
+        CELERY_BROKER_URL = REDIS_URL
+        CELERY_RESULT_BACKEND = REDIS_URL
+    
+    # Archivos estáticos con WhiteNoise
+    STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+    
+    # Insertar WhiteNoise en middleware (después de SecurityMiddleware)
+    if 'whitenoise.middleware.WhiteNoiseMiddleware' not in MIDDLEWARE:
+        MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')
+    
+    # Seguridad HTTPS
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    
+    # CORS - Permitir frontend de Vercel
+    CORS_ALLOWED_ORIGINS = os.environ.get('CORS_ALLOWED_ORIGINS', '').split(',')
+    CORS_ALLOWED_ORIGINS = [origin.strip() for origin in CORS_ALLOWED_ORIGINS if origin.strip()]
+    CORS_ALLOW_CREDENTIALS = True
+    
+    # También agregar a CSRF_TRUSTED_ORIGINS
+    CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS.copy()
+    
+    print("✅ Configuración de PRODUCCIÓN (Railway) cargada")
