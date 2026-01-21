@@ -3,19 +3,76 @@ Django settings for SMGI project.
 Base settings shared across all environments.
 """
 from pathlib import Path
-from decouple import config, Csv
 from datetime import timedelta
+import os
 
 # Build paths inside the project
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = config('SECRET_KEY')
+# =============================================
+# DETECTAR ENTORNO (PRODUCCIÓN O DESARROLLO)
+# =============================================
+IS_PRODUCTION = os.environ.get('RAILWAY_ENVIRONMENT') is not None
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = config('DEBUG', default=False, cast=bool)
-
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=Csv())
+# =============================================
+# CONFIGURACIÓN SEGÚN ENTORNO
+# =============================================
+if IS_PRODUCTION:
+    # === PRODUCCIÓN (Railway) ===
+    import dj_database_url
+    
+    SECRET_KEY = os.environ.get('SECRET_KEY', 'fallback-secret-key-change-me')
+    DEBUG = False
+    
+    ALLOWED_HOSTS = [
+        '.railway.app',
+        '.up.railway.app',
+        'localhost',
+        '127.0.0.1',
+    ]
+    
+    # Base de datos desde DATABASE_URL
+    DATABASE_URL = os.environ.get('DATABASE_URL')
+    if DATABASE_URL:
+        DATABASES = {
+            'default': dj_database_url.config(
+                default=DATABASE_URL,
+                conn_max_age=600,
+                engine='django.db.backends.postgresql',  # Usar PostgreSQL normal primero
+            )
+        }
+    else:
+        # Fallback si no hay DATABASE_URL
+        DATABASES = {
+            'default': {
+                'ENGINE': 'django.db.backends.postgresql',
+                'NAME': 'railway',
+            }
+        }
+    
+    print("✅ Configuración de PRODUCCIÓN (Railway) cargada")
+    
+else:
+    # === DESARROLLO (Local) ===
+    from decouple import config, Csv
+    
+    SECRET_KEY = config('SECRET_KEY', default='dev-secret-key-not-for-production')
+    DEBUG = config('DEBUG', default=True, cast=bool)
+    ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=Csv())
+    
+    # Base de datos local con PostGIS
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.contrib.gis.db.backends.postgis',
+            'NAME': config('DB_NAME', default='smgi_db'),
+            'USER': config('DB_USER', default='smgi_user'),
+            'PASSWORD': config('DB_PASSWORD', default=''),
+            'HOST': config('DB_HOST', default='localhost'),
+            'PORT': config('DB_PORT', default='5432'),
+        }
+    }
+    
+    print("🔧 Configuración de DESARROLLO cargada")
 
 # Application definition
 DJANGO_APPS = [
@@ -25,8 +82,11 @@ DJANGO_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'django.contrib.gis',  # GeoDjango
 ]
+
+# Solo agregar GIS si no estamos en producción (Railway no tiene PostGIS)
+if not IS_PRODUCTION:
+    DJANGO_APPS.append('django.contrib.gis')
 
 THIRD_PARTY_APPS = [
     'rest_framework',
@@ -47,13 +107,15 @@ LOCAL_APPS = [
     'apps.alerts',
     'apps.automation',
     'apps.notifications',
+    'apps.core',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    'corsheaders.middleware.CorsMiddleware',  # CORS debe ir temprano
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # WhiteNoise para archivos estáticos
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -81,18 +143,6 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
-
-# Database
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.contrib.gis.db.backends.postgis',
-        'NAME': config('DB_NAME', default='smgi_db'),
-        'USER': config('DB_USER', default='smgi_user'),
-        'PASSWORD': config('DB_PASSWORD', default=''),
-        'HOST': config('DB_HOST', default='localhost'),
-        'PORT': config('DB_PORT', default='5432'),
-    }
-}
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -122,7 +172,13 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATICFILES_DIRS = [BASE_DIR / 'static']
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+# Crear directorio static si no existe
+STATICFILES_DIRS = []
+static_dir = BASE_DIR / 'static'
+if static_dir.exists():
+    STATICFILES_DIRS.append(static_dir)
 
 # Media files
 MEDIA_URL = '/media/'
@@ -156,13 +212,13 @@ REST_FRAMEWORK = {
 
 # JWT Settings
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=config('JWT_ACCESS_TOKEN_LIFETIME', default=60, cast=int)),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=config('JWT_REFRESH_TOKEN_LIFETIME', default=1, cast=int)),
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'UPDATE_LAST_LOGIN': True,
     'ALGORITHM': 'HS256',
-    'SIGNING_KEY': config('JWT_SECRET_KEY', default=SECRET_KEY),
+    'SIGNING_KEY': SECRET_KEY,
     'AUTH_HEADER_TYPES': ('Bearer',),
     'USER_ID_FIELD': 'id',
     'USER_ID_CLAIM': 'user_id',
@@ -171,11 +227,15 @@ SIMPLE_JWT = {
 }
 
 # CORS Settings
-CORS_ALLOWED_ORIGINS = config(
-    'CORS_ALLOWED_ORIGINS',
-    default='http://localhost:3000,http://localhost:5173',
-    cast=Csv()
-)
+if IS_PRODUCTION:
+    cors_origins = os.environ.get('CORS_ALLOWED_ORIGINS', '')
+    CORS_ALLOWED_ORIGINS = [origin.strip() for origin in cors_origins.split(',') if origin.strip()]
+    CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS.copy()
+else:
+    CORS_ALLOWED_ORIGINS = [
+        'http://localhost:3000',
+        'http://localhost:5173',
+    ]
 CORS_ALLOW_CREDENTIALS = True
 
 # Spectacular Settings (API Documentation)
@@ -188,8 +248,14 @@ SPECTACULAR_SETTINGS = {
 }
 
 # Celery Configuration
-CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://localhost:6379/1')
-CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default='redis://localhost:6379/2')
+if IS_PRODUCTION:
+    REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+    CELERY_BROKER_URL = REDIS_URL
+    CELERY_RESULT_BACKEND = REDIS_URL
+else:
+    CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/1')
+    CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/2')
+
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
@@ -200,13 +266,8 @@ CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes
 # Cache Configuration
 CACHES = {
     'default': {
-        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
-        'LOCATION': config('REDIS_URL', default='redis://localhost:6379/0'),
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-        },
-        'KEY_PREFIX': 'smgi',
-        'TIMEOUT': 300,  # 5 minutes
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'unique-snowflake',
     }
 }
 
@@ -229,26 +290,19 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
         },
-        'file': {
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': BASE_DIR / 'logs' / 'django.log',
-            'maxBytes': 1024 * 1024 * 15,  # 15MB
-            'backupCount': 10,
-            'formatter': 'verbose',
-        },
     },
     'root': {
-        'handlers': ['console', 'file'],
+        'handlers': ['console'],
         'level': 'INFO',
     },
     'loggers': {
         'django': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console'],
             'level': 'INFO',
             'propagate': False,
         },
         'apps': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console'],
             'level': 'DEBUG',
             'propagate': False,
         },
@@ -256,187 +310,86 @@ LOGGING = {
 }
 
 # Email Configuration
-EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')
-EMAIL_HOST = config('EMAIL_HOST', default='smtp.gmail.com')
-EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
-EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
-EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
-EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
-DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@smgi.com')
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', 587))
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@smgi.com')
 
 # SMS/Twilio Configuration (for notifications)
-TWILIO_ACCOUNT_SID = config('TWILIO_ACCOUNT_SID', default='')
-TWILIO_AUTH_TOKEN = config('TWILIO_AUTH_TOKEN', default='')
-TWILIO_PHONE_NUMBER = config('TWILIO_PHONE_NUMBER', default='')
+TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID', '')
+TWILIO_AUTH_TOKEN = os.environ.get('TWILIO_AUTH_TOKEN', '')
+TWILIO_PHONE_NUMBER = os.environ.get('TWILIO_PHONE_NUMBER', '')
 
 # Frontend URL (for emails and notifications)
-FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:3000')
-
-# DRF Spectacular Settings (API Documentation) - Will be imported from spectacular.py
-# Importar configuración de Spectacular
-try:
-    from .spectacular import SPECTACULAR_SETTINGS
-except ImportError:
-    SPECTACULAR_SETTINGS = {
-        'TITLE': 'SMGI API',
-        'DESCRIPTION': 'Sistema de Monitoreo Geoespacial Inteligente - API Documentation',
-        'VERSION': '1.0.0',
-        'SERVE_INCLUDE_SCHEMA': False,
-        'COMPONENT_SPLIT_REQUEST': True,
-    }
-
-# ============================================================================
-# CORE APP - FILE MANAGEMENT
-# ============================================================================
-
-# Agregar core a INSTALLED_APPS
-
-# ============================================================================
-# CORE APP - FILE MANAGEMENT
-# ============================================================================
-
-INSTALLED_APPS += [
-    'apps.core',
-]
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
 
 # File Management Settings
 FILE_STORAGE_TTL = {
-    'export': 72,      # 3 días
-    'report': 168,     # 7 días  
-    'analysis': 48,    # 2 días
-    'monitoring': 720, # 30 días
-    'temp': 24,        # 1 día
-    'backup': None,    # Indefinido
+    'export': 72,
+    'report': 168,
+    'analysis': 48,
+    'monitoring': 720,
+    'temp': 24,
+    'backup': None,
 }
 
-# File Locking
-FILE_LOCK_TIMEOUT = 60  # segundos
+FILE_LOCK_TIMEOUT = 60
 
 # Celery Beat Schedule
 from celery.schedules import crontab
 
 CELERY_BEAT_SCHEDULE = {
-    # Core tasks
     'cleanup-expired-files': {
         'task': 'apps.core.tasks.cleanup_expired_files',
-        'schedule': crontab(minute=0),  # Cada hora
+        'schedule': crontab(minute=0),
     },
     'cleanup-orphaned-locks': {
         'task': 'apps.core.tasks.cleanup_orphaned_locks',
-        'schedule': crontab(minute=30),  # Cada hora, offset 30 min
+        'schedule': crontab(minute=30),
     },
     'generate-storage-report': {
         'task': 'apps.core.tasks.generate_storage_report',
-        'schedule': crontab(hour=6, minute=0),  # Diario a las 6 AM
+        'schedule': crontab(hour=6, minute=0),
     },
-    # Agent tasks
     'process-scheduled-agents': {
         'task': 'apps.agents.tasks.process_scheduled_agents',
-        'schedule': crontab(minute='*/1'),  # Cada minuto
+        'schedule': crontab(minute='*/1'),
     },
     'update-agent-statistics': {
         'task': 'apps.agents.tasks.update_agent_statistics',
-        'schedule': crontab(hour=0, minute=0),  # Diario a medianoche
+        'schedule': crontab(hour=0, minute=0),
     },
     'calculate-agent-ratings': {
         'task': 'apps.agents.tasks.calculate_agent_ratings',
-        'schedule': crontab(minute=0),  # Cada hora
+        'schedule': crontab(minute=0),
     },
     'cleanup-old-executions': {
         'task': 'apps.agents.tasks.cleanup_old_executions',
-        'schedule': crontab(hour=2, minute=0),  # Diario a las 2 AM
+        'schedule': crontab(hour=2, minute=0),
     },
 }
 
-# ============================================================================
-# CONFIGURACIÓN PARA ARCHIVOS GRANDES (1GB+)
-# ============================================================================
-
-# Aumentar límites de upload
-DATA_UPLOAD_MAX_MEMORY_SIZE = 1024 * 1024 * 1024 * 2  # 2GB
-FILE_UPLOAD_MAX_MEMORY_SIZE = 1024 * 1024 * 1024 * 2  # 2GB
+# File upload settings
+DATA_UPLOAD_MAX_MEMORY_SIZE = 1024 * 1024 * 2  # 2GB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 1024 * 1024 * 2  # 2GB
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000
 
-# Configuración de archivos temporales
-FILE_UPLOAD_TEMP_DIR = BASE_DIR / 'data' / 'uploads' / 'temp'
-FILE_UPLOAD_HANDLERS = [
-    'django.core.files.uploadhandler.TemporaryFileUploadHandler',
-]
+# Celery task limits
+CELERY_TASK_TIME_LIMIT = 60 * 60  # 1 hora
+CELERY_TASK_SOFT_TIME_LIMIT = 60 * 30  # 30 min soft limit
+CELERY_TASK_ACKS_LATE = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 
-# Celery - Ajustes para tareas largas
-CELERY_TASK_TIME_LIMIT = 60 * 60 * 2  # 2 horas máximo por tarea
-CELERY_TASK_SOFT_TIME_LIMIT = 60 * 60  # 1 hora soft limit
-CELERY_WORKER_MAX_MEMORY_PER_CHILD = 1024 * 1024  # 1GB, reiniciar worker si excede
-CELERY_TASK_ACKS_LATE = True  # Confirmar tarea solo cuando termina
-CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # Procesar una tarea a la vez
-
-# Umbral para procesamiento asíncrono (archivos > 50MB van a Celery)
+# Geodata settings
 GEODATA_ASYNC_THRESHOLD = 50 * 1024 * 1024  # 50MB
-
-# Directorio para uploads grandes
 GEODATA_UPLOAD_DIR = BASE_DIR / 'data' / 'uploads'
 
-# =============================================
-# CONFIGURACIÓN DE PRODUCCIÓN - RAILWAY
-# Agregar este código AL FINAL de config/settings.py
-# =============================================
-
-import os
-
-# Detectar si estamos en Railway (producción)
-if os.environ.get('RAILWAY_ENVIRONMENT'):
-    import dj_database_url
-    
-    # Desactivar debug en producción
-    DEBUG = False
-    
-    # Clave secreta desde variable de entorno
-    SECRET_KEY = os.environ.get('SECRET_KEY', SECRET_KEY)
-    
-    # Hosts permitidos
-    ALLOWED_HOSTS = [
-        '.railway.app',
-        '.up.railway.app',
-        'localhost',
-        '127.0.0.1',
-    ]
-    
-    # Base de datos desde DATABASE_URL
-    DATABASE_URL = os.environ.get('DATABASE_URL')
-    if DATABASE_URL:
-        DATABASES = {
-            'default': dj_database_url.config(
-                default=DATABASE_URL,
-                conn_max_age=600,
-            )
-        }
-    
-    # Redis para Celery (si está disponible)
-    REDIS_URL = os.environ.get('REDIS_URL')
-    if REDIS_URL:
-        CELERY_BROKER_URL = REDIS_URL
-        CELERY_RESULT_BACKEND = REDIS_URL
-    
-    # Archivos estáticos con WhiteNoise
-    STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
-    
-    # Insertar WhiteNoise en middleware (después de SecurityMiddleware)
-    if 'whitenoise.middleware.WhiteNoiseMiddleware' not in MIDDLEWARE:
-        MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')
-    
-    # Seguridad HTTPS
+# Security settings for production
+if IS_PRODUCTION:
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
-    
-    # CORS - Permitir frontend de Vercel
-    CORS_ALLOWED_ORIGINS = os.environ.get('CORS_ALLOWED_ORIGINS', '').split(',')
-    CORS_ALLOWED_ORIGINS = [origin.strip() for origin in CORS_ALLOWED_ORIGINS if origin.strip()]
-    CORS_ALLOW_CREDENTIALS = True
-    
-    # También agregar a CSRF_TRUSTED_ORIGINS
-    CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS.copy()
-    
-    print("✅ Configuración de PRODUCCIÓN (Railway) cargada")
